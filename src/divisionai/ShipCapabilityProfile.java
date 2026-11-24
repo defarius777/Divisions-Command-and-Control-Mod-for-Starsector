@@ -52,6 +52,7 @@ public class ShipCapabilityProfile {
     public final boolean isDedicatedCarrier;
     public final boolean isPhase;
     public final boolean isCivilian;
+    public final boolean isCombatFreighter;
     public final boolean hasSafetyOverrides;
     public final boolean hasMissileAutoforge;
     public final boolean isPrimaryMissileBoat;
@@ -134,6 +135,7 @@ public class ShipCapabilityProfile {
         ShipHullSpecAPI spec = ship.getHullSpec();
         EnumSet<ShipTypeHints> hints = spec != null ? spec.getHints() : EnumSet.noneOf(ShipTypeHints.class);
         this.isPhase = hasTruePhaseCloak(ship);
+        this.isCombatFreighter = isCombatFreighterHull(spec);
         this.isCivilian = hints.contains(ShipTypeHints.CIVILIAN)
                 || hints.contains(ShipTypeHints.FREIGHTER)
                 || hints.contains(ShipTypeHints.TANKER)
@@ -426,7 +428,7 @@ public class ShipCapabilityProfile {
     }
 
     private TacticalTag classifyPrimaryTag() {
-        if (isCivilian) return TacticalTag.CIVILIAN_AUX;
+        if (isCivilian && !isCombatFreighter) return TacticalTag.CIVILIAN_AUX;
         String desgLower = (ship != null && ship.getHullSpec() != null && ship.getHullSpec().getDesignation() != null)
                 ? ship.getHullSpec().getDesignation().toLowerCase(java.util.Locale.ROOT)
                 : "";
@@ -556,6 +558,29 @@ public class ShipCapabilityProfile {
     }
 
     /**
+     * Identifies armed combat freighters (e.g. Mule, Hound, Cerberus, Wayfarer, Gemini, Colossus Mk.II/III,
+     * Atlas Mk.II, and modded Combat Freighters) so Fleet Doctrine -> Division Creation can route them
+     * either into combat divisions ("As Warships: ON") or into Service Groups ("As Warships: OFF").
+     */
+    public static boolean isCombatFreighterHull(ShipHullSpecAPI hullSpec) {
+        if (hullSpec == null) return false;
+        String desg = hullSpec.getDesignation() != null
+                ? hullSpec.getDesignation().toLowerCase(java.util.Locale.ROOT)
+                : "";
+        EnumSet<ShipTypeHints> hints = hullSpec.getHints() != null
+                ? hullSpec.getHints()
+                : EnumSet.noneOf(ShipTypeHints.class);
+        if (desg.contains("combat freighter")
+                || desg.contains("combat superfreighter")
+                || desg.contains("carrier freighter")
+                || desg.contains("modified freighter")
+                || desg.contains("modified superfreighter")) {
+            return true;
+        }
+        return hints.contains(ShipTypeHints.FREIGHTER) && hints.contains(ShipTypeHints.COMBAT);
+    }
+
+    /**
      * Unified battlecarrier check shared by combat (ShipCapabilityProfile) and campaign (PermanentDivisionManager).
      */
     public static boolean isBattlecarrierHull(
@@ -572,12 +597,56 @@ public class ShipCapabilityProfile {
             EnumSet<ShipTypeHints> hints,
             String designationLower,
             float nonPdWeaponWeight) {
-        if (bays <= 0 || hullSize != HullSize.CAPITAL_SHIP) return false;
+        if (bays <= 0 || hullSize == null) return false;
         String d = designationLower != null ? designationLower : "";
-        if (d.contains("battlecruiser")) return false;
-        if (d.contains("battlecarrier")) return true;
-        return (hints != null && hints.contains(ShipTypeHints.CARRIER) && hints.contains(ShipTypeHints.COMBAT))
-                || (bays >= 3 && nonPdWeaponWeight >= 22f && (hints == null || !hints.contains(ShipTypeHints.CARRIER)));
+        if (d.contains("battlecruiser")
+                || d.contains("light carrier")
+                || d.contains("fast carrier")
+                || d.contains("escort carrier")
+                || d.contains("fleet supercarrier")
+                || d.contains("drone tender")
+                || d.contains("freighter")
+                || d.contains("tanker")
+                || d.contains("transport")) {
+            return false;
+        }
+        if (d.contains("battlecarrier")
+                || d.contains("aviation cruiser")
+                || d.contains("aviation destroyer")
+                || d.contains("strike carrier")
+                || d.contains("assault carrier")
+                || d.contains("battlestar")) {
+            return true;
+        }
+        boolean hasCarrierAndCombatHints = hints != null
+                && hints.contains(ShipTypeHints.CARRIER)
+                && hints.contains(ShipTypeHints.COMBAT);
+        switch (hullSize) {
+            case CAPITAL_SHIP:
+                return hasCarrierAndCombatHints
+                        || (bays >= 3 && nonPdWeaponWeight >= 22f && (hints == null || !hints.contains(ShipTypeHints.CARRIER)));
+            case CRUISER:
+                return hasCarrierAndCombatHints
+                        && bays >= 2
+                        && nonPdWeaponWeight >= 18f
+                        && !d.equals("carrier")
+                        && !d.contains("combat carrier")
+                        && !d.contains("siege carrier")
+                        && !d.contains("heavy carrier")
+                        && !d.contains("carrier cruiser")
+                        && !d.contains("command carrier")
+                        && !d.contains("logistics");
+            case DESTROYER:
+            case FRIGATE:
+                return hasCarrierAndCombatHints
+                        && bays >= 1
+                        && nonPdWeaponWeight >= 11f
+                        && !d.contains("carrier")
+                        && !d.contains("explorer")
+                        && !d.contains("modified destroyer");
+            default:
+                return false;
+        }
     }
 
     /**

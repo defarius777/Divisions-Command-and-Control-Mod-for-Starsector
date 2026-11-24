@@ -547,16 +547,18 @@ public final class DivisionUiWidgets {
                 currentMission.summary
                         + (currentMission.autoLineStation != null
                         ? (" (Default Line Station: " + currentMission.autoLineStation.displayName + ").")
-                        : ""));
+                        : ""),
+                DivisionCodexSetup.ENTRY_MISSIONS);
 
         float hintBottom = 0f;
         String topHint = showLineStationHint
-                ? (currentMission.autoLineStation != null ? currentMission.autoLineStation.displayName : "")
+                ? (currentMission.autoLineStation != null ? ("Line: " + currentMission.autoLineStation.displayName) : "")
                 : currentMission.summary;
         if (topHint != null && !topHint.isEmpty()) {
             LabelAPI hintLbl = rowUi.addPara(topHint, 0f, gray);
             float availHintW = rowWidth - hintColX - 8f;
-            if (availHintW >= 68f) {
+            float minInlineW = showLineStationHint ? 62f : 180f;
+            if (availHintW >= minInlineW) {
                 hintBottom = wrapLabelInPlace(hintLbl, availHintW, hintColX, hasInheritOption ? 4f : 5f);
             } else {
                 hintBottom = wrapLabelInPlace(hintLbl, rowWidth - controlColX - 8f, controlColX, btnY + toggleBtnH + 3f);
@@ -565,7 +567,8 @@ public final class DivisionUiWidgets {
                     rowUi,
                     (UIComponentAPI) hintLbl,
                     currentMission.dropdownLabel,
-                    currentMission.summary);
+                    currentMission.summary,
+                    DivisionCodexSetup.ENTRY_MISSIONS);
         }
 
         float finalMainH = Math.max(mainRowH, Math.max(Math.max(lblBottom, btnY + toggleBtnH), hintBottom) + 4f);
@@ -592,6 +595,12 @@ public final class DivisionUiWidgets {
                         inhAct);
                 if (!isCustom) bInh.highlight();
                 bInh.getPosition().inTL(controlColX + 12f, 2f);
+                addTooltip(
+                        inhUi,
+                        bInh,
+                        "Inherit Doctrine Default",
+                        "Clears any custom override on this division and uses the mission configured for its Division Type in Fleet Doctrine.",
+                        DivisionCodexSetup.ENTRY_MISSIONS);
                 inhUi.setHeightSoFar(optRowH);
                 inhPanel.addUIElement(inhUi).inTL(0f, 0f);
                 parent.addCustom(inhPanel, 1f);
@@ -605,10 +614,13 @@ public final class DivisionUiWidgets {
             }
             if (includeAllFallbackOptions || ordered.isEmpty()) {
                 for (DivisionMissionType m : DivisionMissionType.values()) {
-                    if (!m.isCarrierMission && !ordered.contains(m)) {
+                    if (!m.isCarrierMission && m != DivisionMissionType.CARRIER_STANDOFF && !ordered.contains(m)) {
                         ordered.add(m);
                     }
                 }
+            }
+            if (currentMission != null && !ordered.contains(currentMission)) {
+                ordered.add(0, currentMission);
             }
 
             for (DivisionMissionType opt : ordered) {
@@ -617,7 +629,7 @@ public final class DivisionUiWidgets {
                 TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, optRowH, false);
                 String selAct = selectActionPrefix + opt.name();
                 String hintText = showLineStationHint
-                        ? (opt.autoLineStation != null ? opt.autoLineStation.displayName : "")
+                        ? (opt.autoLineStation != null ? ("Line: " + opt.autoLineStation.displayName) : "")
                         : opt.summary;
                 ButtonAPI bOpt = registrar.register(
                         optUi.addButton(
@@ -634,11 +646,21 @@ public final class DivisionUiWidgets {
                 if (selected) bOpt.highlight();
                 float optBtnY = hasInheritOption ? 2f : 3f;
                 bOpt.getPosition().inTL(controlColX + 12f, optBtnY);
+                addTooltip(
+                        optUi,
+                        bOpt,
+                        opt.dropdownLabel,
+                        opt.summary
+                                + (opt.autoLineStation != null
+                                ? (" (Default Line Station: " + opt.autoLineStation.displayName + ").")
+                                : ""),
+                        DivisionCodexSetup.ENTRY_MISSIONS);
                 float optHintBottom = 0f;
                 if (hintText != null && !hintText.isEmpty()) {
                     LabelAPI optHintLbl = optUi.addPara(hintText, 0f, selected ? activeColor : gray);
                     float availOptHintW = rowWidth - hintColX - 8f;
-                    if (availOptHintW >= 68f) {
+                    float minOptInlineW = showLineStationHint ? 62f : 180f;
+                    if (availOptHintW >= minOptInlineW) {
                         optHintBottom = wrapLabelInPlace(optHintLbl, availOptHintW, hintColX, 4f);
                     } else {
                         optHintBottom = wrapLabelInPlace(optHintLbl, rowWidth - (controlColX + 12f) - 8f, controlColX + 12f, optBtnY + 22f);
@@ -703,18 +725,19 @@ public final class DivisionUiWidgets {
                 rowUi,
                 bToggle,
                 labelText.replace(":", "") + ": " + effMis.dropdownLabel,
-                effMis.summary);
+                effMis.summary,
+                DivisionCodexSetup.ENTRY_MISSIONS);
 
         float hintBottom = 0f;
         if (effMis.summary != null && !effMis.summary.isEmpty()) {
             LabelAPI hintLbl = rowUi.addPara(effMis.summary, 0f, gray);
             float availHintW = rowWidth - hintColX - 8f;
-            if (availHintW >= 68f) {
+            if (availHintW >= 180f) {
                 hintBottom = wrapLabelInPlace(hintLbl, availHintW, hintColX, hasInheritOption ? 4f : 5f);
             } else {
                 hintBottom = wrapLabelInPlace(hintLbl, rowWidth - controlColX - 8f, controlColX, btnY + toggleBtnH + 3f);
             }
-            addTooltip(rowUi, (UIComponentAPI) hintLbl, effMis.dropdownLabel, effMis.summary);
+            addTooltip(rowUi, (UIComponentAPI) hintLbl, effMis.dropdownLabel, effMis.summary, DivisionCodexSetup.ENTRY_MISSIONS);
         }
 
         float finalMainH = Math.max(mainRowH, Math.max(Math.max(lblBottom, btnY + toggleBtnH), hintBottom) + 4f);
@@ -741,6 +764,12 @@ public final class DivisionUiWidgets {
                         inhAct);
                 if (!isCustom) bInh.highlight();
                 bInh.getPosition().inTL(controlColX + 12f, 2f);
+                addTooltip(
+                        inhUi,
+                        bInh,
+                        "Inherit Doctrine Default",
+                        "Clears any custom strike-craft mission override on this division and uses Fleet Doctrine defaults.",
+                        DivisionCodexSetup.ENTRY_MISSIONS);
                 inhUi.setHeightSoFar(optRowH);
                 inhPanel.addUIElement(inhUi).inTL(0f, 0f);
                 parent.addCustom(inhPanel, 1f);
@@ -766,11 +795,12 @@ public final class DivisionUiWidgets {
                 if (selected) bOpt.highlight();
                 float optBtnY = hasInheritOption ? 2f : 3f;
                 bOpt.getPosition().inTL(controlColX + 12f, optBtnY);
+                addTooltip(optUi, bOpt, opt.dropdownLabel, opt.summary, DivisionCodexSetup.ENTRY_MISSIONS);
                 float optHintBottom = 0f;
                 if (opt.summary != null && !opt.summary.isEmpty()) {
                     LabelAPI optHintLbl = optUi.addPara(opt.summary, 0f, selected ? activeColor : gray);
                     float availOptHintW = rowWidth - hintColX - 8f;
-                    if (availOptHintW >= 68f) {
+                    if (availOptHintW >= 180f) {
                         optHintBottom = wrapLabelInPlace(optHintLbl, availOptHintW, hintColX, 4f);
                     } else {
                         optHintBottom = wrapLabelInPlace(optHintLbl, rowWidth - (controlColX + 12f) - 8f, controlColX + 12f, optBtnY + 22f);
@@ -914,7 +944,16 @@ public final class DivisionUiWidgets {
             UIComponentAPI target,
             final String title,
             final String body) {
-        addTooltip(host, target, title, body, null, null);
+        addTooltip(host, target, title, body, null, null, null);
+    }
+
+    public static void addTooltip(
+            TooltipMakerAPI host,
+            UIComponentAPI target,
+            final String title,
+            final String body,
+            final String codexEntryId) {
+        addTooltip(host, target, title, body, null, null, codexEntryId);
     }
 
     public static void addTooltip(
@@ -924,6 +963,17 @@ public final class DivisionUiWidgets {
             final String body,
             final String positiveNote,
             final String negativeNote) {
+        addTooltip(host, target, title, body, positiveNote, negativeNote, null);
+    }
+
+    public static void addTooltip(
+            TooltipMakerAPI host,
+            UIComponentAPI target,
+            final String title,
+            final String body,
+            final String positiveNote,
+            final String negativeNote,
+            final String codexEntryId) {
         if (target == null || (title == null && body == null)) return;
         TooltipMakerAPI effHost = resolveTooltipHost(host);
         if (effHost == null) return;
@@ -942,6 +992,12 @@ public final class DivisionUiWidgets {
                 @Override
                 public void createTooltip(TooltipMakerAPI tooltip, boolean expanded, Object tooltipParam) {
                     if (tooltip == null) return;
+                    if (codexEntryId != null && !codexEntryId.isEmpty()) {
+                        try {
+                            tooltip.setCodexEntryId(codexEntryId);
+                        } catch (Throwable ignored) {
+                        }
+                    }
                     boolean hasTitle = (title != null && !title.trim().isEmpty());
                     if (hasTitle) {
                         tooltip.addPara(title, Misc.getHighlightColor(), 0f);
@@ -967,7 +1023,8 @@ public final class DivisionUiWidgets {
         if (spec != null && spec.length >= 2) {
             String pos = spec.length >= 3 ? spec[2] : null;
             String neg = spec.length >= 4 ? spec[3] : null;
-            addTooltip(host, target, spec[0], spec[1], pos, neg);
+            String codexId = DivisionCodexSetup.resolveCodexEntryForAction(actionId);
+            addTooltip(host, target, spec[0], spec[1], pos, neg, codexId);
         }
     }
 
@@ -975,7 +1032,8 @@ public final class DivisionUiWidgets {
         if (labelComp == null || labelText == null) return;
         String[] spec = resolveRowLabelTooltipSpec(labelText);
         if (spec != null && spec.length >= 2) {
-            addTooltip(host, labelComp, spec[0], spec[1]);
+            String codexId = DivisionCodexSetup.resolveCodexEntryForLabel(labelText);
+            addTooltip(host, labelComp, spec[0], spec[1], null, null, codexId);
         }
     }
 
@@ -1011,8 +1069,8 @@ public final class DivisionUiWidgets {
                 };
             case "TAB:AUTO_ASSIGN":
                 return new String[]{
-                        "Auto-Assign Schemes",
-                        "Configure which division capability families (Line, Missile, Strike, Carrier, Phase, Service) and hull size classes are formed when auto-assigning ships."
+                        "Division Creation Rules",
+                        "Controls which specialist and line division types are instantiated from your ships (for Auto-Assign, Reset & Auto-Form, Colony Fleets, and unorganized combat ships). Turning a specialist role OFF folds those hulls into standard gun-line divisions of the same hull class."
                 };
             case "TAB:HULLS":
                 return new String[]{
@@ -1276,6 +1334,12 @@ public final class DivisionUiWidgets {
                 }
             }
         }
+        if (actionId.startsWith("SET_COMBAT_FREIGHTERS_WARSHIPS:")) {
+            return new String[]{
+                    "Combat Freighters as Warships",
+                    "Controls how armed freighters are grouped during division creation. When ON, they join combat divisions of their hull class; when OFF, they group into Service Groups instead."
+            };
+        }
         if (actionId.startsWith("SET_AA_CAP:")) {
             String rest = actionId.substring("SET_AA_CAP:".length());
             int sep = rest.indexOf(':');
@@ -1310,10 +1374,12 @@ public final class DivisionUiWidgets {
                 try {
                     AutoAssignCapability cap = AutoAssignCapability.valueOf(parts[0]);
                     AutoAssignHull hull = AutoAssignHull.valueOf(parts[1]);
+                    String created = cap.describeInstantiatedDivision(hull);
+                    String fallback = cap.describeFallbackWhenDisabled(hull);
                     return new String[]{
-                            "Auto-Assign Scheme: " + cap.shortName + " " + hull.displayName,
-                            "Controls whether the auto-assigner forms dedicated " + cap.shortName + " " + hull.displayName
-                                    + " divisions (" + cap.summary + "). When disabled, matching hulls are routed to other enabled schemes or general Force divisions."
+                            created + " (" + hull.displayName + ")",
+                            "Controls whether matching " + hull.displayName + " hulls instantiate a dedicated " + created
+                                    + ". When turned OFF, matching hulls fold into " + fallback + " instead."
                     };
                 } catch (IllegalArgumentException ignored) {
                 }
@@ -1674,12 +1740,60 @@ public final class DivisionUiWidgets {
                     "Assigns this officer and ship as your battle group's Officer in Tactical Command. If your chosen OTC ship is not deployed into combat, your fleet incurs -75% Max Command Points and -50% CP regeneration."
             };
         }
+        if ("TOGGLE_DIV_TUNING_OPTIONS".equals(actionId)) {
+            return new String[]{
+                    "Spacing & C2 Tuning",
+                    "Expand or collapse fine-grained division formation spacing, inter-division interval, engine telegraph, setpiece attack passes, and ship skill coordination."
+            };
+        }
+        if (actionId.startsWith("OPEN_CODEX:")) {
+            return new String[]{
+                    "Open Codex Manual [F2]",
+                    "Opens the Divisions: Command & Control section of the Codex. You can also hover any Division AI button, dropdown, or label and press F2 to jump straight to its topic."
+            };
+        }
+        if ("TOUR_AUTO_ASSIGN".equals(actionId)) {
+            return new String[]{
+                    "Auto-Assign Ships",
+                    "Automatically assigns your unassigned ships into divisions based on your Fleet Doctrine without forcing manual ship rearrangement."
+            };
+        }
+        if ("TOUR_NEXT".equals(actionId)) {
+            return new String[]{
+                    "Advance Intro Tour",
+                    "Moves to the next Fleet-screen tip, or finishes and dismisses the tour on the final step."
+            };
+        }
+        if ("TOUR_PREV".equals(actionId)) {
+            return new String[]{
+                    "Previous Tip",
+                    "Returns to the previous Fleet-screen tip."
+            };
+        }
+        if ("TOUR_SKIP".equals(actionId)) {
+            return new String[]{
+                    "Skip Intro Tour",
+                    "Dismisses this walkthrough for this save. You can replay it anytime from Mod Settings or read the full guide in the Codex (F2)."
+            };
+        }
+        if ("TOUR_OPEN_CODEX".equals(actionId)) {
+            return new String[]{
+                    "Open Division AI Codex",
+                    "Closes the walkthrough and opens the Divisions: Command & Control overview in the Starsector Codex."
+            };
+        }
         return null;
     }
 
     public static String[] resolveRowLabelTooltipSpec(String labelText) {
         if (labelText == null || labelText.isEmpty()) return null;
         String lower = labelText.trim().toLowerCase(Locale.ROOT);
+        if (lower.startsWith("spacing & c2 tuning")) {
+            return new String[]{
+                    "Spacing & C2 Tuning",
+                    "Fine-tuning overrides for ship spacing, division interval, engine telegraph, single-division setpiece passes, and ship system coordination."
+            };
+        }
         if (lower.startsWith("battle line structure") || lower.startsWith("line structure")) {
             return new String[]{
                     "Battle Line Structure",

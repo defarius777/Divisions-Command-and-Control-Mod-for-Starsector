@@ -810,9 +810,15 @@ public class UITestHarness {
         String pdmJava = new String(Files.readAllBytes(new File("src/divisionai/PermanentDivisionManager.java").toPath()), StandardCharsets.UTF_8);
         boolean itemBOk = defaultAllOn
                 && cellDisabledOnlyForDestroyer
-                && docDialogJava.contains("AUTO-ASSIGNER SCHEMES")
-                && docDialogJava.contains("BY CAPABILITY")
+                && "Capital".equals(AutoAssignHull.BATTLESHIP.displayName)
+                && "Capital".equals(AutoAssignHull.BATTLESHIP.shortName)
+                && "Heavy Battlecarrier Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.BATTLESHIP))
+                && "Medium Battlecarrier Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.CRUISER))
+                && "Light Battlecarrier Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.DESTROYER))
+                && docDialogJava.contains("DIVISION CREATION")
+                && docDialogJava.contains("BY COMBAT ROLE")
                 && docDialogJava.contains("BY HULL CLASS")
+                && docDialogJava.contains("shortSchemeOutcomeLabel(")
                 && docDialogJava.contains("SET_AA_SCHEME:")
                 && pdmJava.contains("classifyFleetMemberArchetype(FleetMemberAPI member, FleetDoctrineConfig doctrine)");
         res.record(
@@ -922,8 +928,11 @@ public class UITestHarness {
                 && DoctrineDivisionType.forArchetype(null) == DoctrineDivisionType.FORCE
                 && "FORCE".equals(DivisionNomenclature.resolvePrefixBucketKey(DivisionArchetype.FORCE_DIVISION))
                 && "Force 1".equals(DivisionNomenclature.formatPlayerDivisionName(DivisionArchetype.FORCE_DIVISION, 1))
-                && DivisionArchetype.values().length == 22
-                && DoctrineDivisionType.values().length == 22;
+                && "Heavy Battlecarrier Div".equals(DivisionArchetype.BATTLECARRIER_DIVISION.shortPrefix)
+                && "Medium Battlecarrier Div".equals(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION.shortPrefix)
+                && "Light Battlecarrier Div".equals(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION.shortPrefix)
+                && DivisionArchetype.values().length == 24
+                && DoctrineDivisionType.values().length == 24;
 
         res.record(
                 itemCOk,

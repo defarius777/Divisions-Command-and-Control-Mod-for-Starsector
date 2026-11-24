@@ -1303,14 +1303,14 @@ public class PermanentDivisionManager {
                 list.add(STANDOFF_ENGAGEMENT);
                 list.add(CLOSE_ACTION);
                 list.add(SCREEN);
+                list.add(RESERVE);
                 list.add(SCOUTING);
                 list.add(ENVELOPMENT);
                 list.add(TOT_ALPHA_STRIKE);
-                list.add(RESERVE);
                 list.add(MARTYRDOM);
             } else {
                 for (DivisionMissionType m : values()) {
-                    if (!m.carrierSpecific) {
+                    if (!m.carrierSpecific && m != CARRIER_STANDOFF) {
                         list.add(m);
                     }
                 }
@@ -1319,15 +1319,73 @@ public class PermanentDivisionManager {
         }
 
         public static DivisionMissionType[] missionsForArchetype(DivisionArchetype archetype) {
-            boolean isCarrier = archetype != null && archetype.isCarrierArchetype();
-            List<DivisionMissionType> list = getOptionsForDivisionType(isCarrier);
-            return list.toArray(new DivisionMissionType[0]);
+            if (archetype != null && archetype.isCarrierArchetype()) {
+                return getOptionsForDivisionType(true).toArray(new DivisionMissionType[0]);
+            }
+            List<DivisionMissionType> ordered = new ArrayList<>();
+            if (archetype == DivisionArchetype.MISSILE_BATTLESHIP_DIVISION
+                    || archetype == DivisionArchetype.MISSILE_CRUISER_DIVISION
+                    || archetype == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                    || archetype == DivisionArchetype.MISSILE_FRIGATE_DIVISION
+                    || archetype == DivisionArchetype.MISSILE_PHASE_DIVISION) {
+                ordered.add(STANDOFF_ENGAGEMENT);
+                ordered.add(TOT_ALPHA_STRIKE);
+                ordered.add(CLOSE_ACTION);
+                ordered.add(SCREEN);
+                ordered.add(RESERVE);
+                ordered.add(ENVELOPMENT);
+                ordered.add(SCOUTING);
+                ordered.add(MARTYRDOM);
+            } else if (archetype == DivisionArchetype.BATTLECRUISER_DIVISION
+                    || archetype == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                    || archetype == DivisionArchetype.STRIKE_DESTROYER_DIVISION
+                    || archetype == DivisionArchetype.STRIKE_FRIGATE_DIVISION
+                    || (archetype != null && archetype.isPhaseArchetype())) {
+                ordered.add(TOT_ALPHA_STRIKE);
+                ordered.add(ENVELOPMENT);
+                ordered.add(CLOSE_ACTION);
+                ordered.add(STANDOFF_ENGAGEMENT);
+                ordered.add(SCOUTING);
+                ordered.add(SCREEN);
+                ordered.add(RESERVE);
+                ordered.add(MARTYRDOM);
+            } else if (archetype == DivisionArchetype.DESTROYER_DIVISION
+                    || archetype == DivisionArchetype.FRIGATE_DIVISION) {
+                ordered.add(SCREEN);
+                ordered.add(SCOUTING);
+                ordered.add(ENVELOPMENT);
+                ordered.add(CLOSE_ACTION);
+                ordered.add(STANDOFF_ENGAGEMENT);
+                ordered.add(TOT_ALPHA_STRIKE);
+                ordered.add(RESERVE);
+                ordered.add(MARTYRDOM);
+            } else if (archetype == DivisionArchetype.SERVICE_GROUP) {
+                ordered.add(RESERVE);
+                ordered.add(STANDOFF_ENGAGEMENT);
+                ordered.add(SCREEN);
+                ordered.add(SCOUTING);
+                ordered.add(CLOSE_ACTION);
+                ordered.add(ENVELOPMENT);
+                ordered.add(TOT_ALPHA_STRIKE);
+                ordered.add(MARTYRDOM);
+            } else {
+                ordered.add(CLOSE_ACTION);
+                ordered.add(STANDOFF_ENGAGEMENT);
+                ordered.add(RESERVE);
+                ordered.add(SCREEN);
+                ordered.add(TOT_ALPHA_STRIKE);
+                ordered.add(ENVELOPMENT);
+                ordered.add(SCOUTING);
+                ordered.add(MARTYRDOM);
+            }
+            return ordered.toArray(new DivisionMissionType[0]);
         }
 
         public static DivisionMissionType[] missionsForDoctrineType(DoctrineDivisionType dt) {
-            boolean isCarrier = dt != null && dt.primaryArchetype != null && dt.primaryArchetype.isCarrierArchetype();
-            List<DivisionMissionType> list = getOptionsForDivisionType(isCarrier);
-            return list.toArray(new DivisionMissionType[0]);
+            if (dt == null || dt.primaryArchetype == null) {
+                return getOptionsForDivisionType(false).toArray(new DivisionMissionType[0]);
+            }
+            return missionsForArchetype(dt.primaryArchetype);
         }
 
         /** Pre-v0.5.2 saved mission names. */
@@ -1593,13 +1651,35 @@ public class PermanentDivisionManager {
                 LineStation.CENTER,
                 DivisionFormation.LINE_ABREAST),
         BATTLECARRIER(
-                "Battlecarrier Division",
+                "Heavy Battlecarrier Division",
                 DivisionArchetype.BATTLECARRIER_DIVISION,
                 650,
                 1220,
                 1050,
                 0.96f,
                 DivisionMissionType.STANDOFF_ENGAGEMENT,
+                DivisionMissionType.CLOSE_ACTION,
+                LineStation.CENTER,
+                DivisionFormation.LINE_ABREAST),
+        MEDIUM_BATTLECARRIER(
+                "Medium Battlecarrier Division",
+                DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION,
+                550,
+                1120,
+                980,
+                0.98f,
+                DivisionMissionType.STANDOFF_ENGAGEMENT,
+                DivisionMissionType.CLOSE_ACTION,
+                LineStation.CENTER,
+                DivisionFormation.LINE_ABREAST),
+        LIGHT_BATTLECARRIER(
+                "Light Battlecarrier Division",
+                DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION,
+                475,
+                1000,
+                920,
+                1.04f,
+                DivisionMissionType.SCOUTING,
                 DivisionMissionType.CLOSE_ACTION,
                 LineStation.CENTER,
                 DivisionFormation.LINE_ABREAST),
@@ -1730,8 +1810,12 @@ public class PermanentDivisionManager {
             return primaryArchetype != null && primaryArchetype.isCarrierArchetype();
         }
 
+        public boolean isBattlecarrierType() {
+            return this == BATTLECARRIER || this == MEDIUM_BATTLECARRIER || this == LIGHT_BATTLECARRIER;
+        }
+
         public boolean hasStrikeCraftDoctrine() {
-            return isCarrierType() || this == BATTLECARRIER;
+            return isCarrierType() || isBattlecarrierType();
         }
 
         /** The pre-v0.5.2 name used in saved doctrine keys, or null if the name did not change. */
@@ -1739,6 +1823,8 @@ public class PermanentDivisionManager {
             switch (this) {
                 case BATTLESHIP:
                     return "BATTLE_CAPITAL";
+                case BATTLECARRIER:
+                    return "HEAVY_BATTLECARRIER";
                 case CARRIER_GROUP:
                     return "CARRIER_ESCORT";
                 case PHASE:
@@ -1779,6 +1865,10 @@ public class PermanentDivisionManager {
                     return MISSILE_BATTLESHIP;
                 case BATTLECARRIER_DIVISION:
                     return BATTLECARRIER;
+                case MEDIUM_BATTLECARRIER_DIVISION:
+                    return MEDIUM_BATTLECARRIER;
+                case LIGHT_BATTLECARRIER_DIVISION:
+                    return LIGHT_BATTLECARRIER;
                 case FLEET_CARRIER_DIVISION:
                     return FLEET_CARRIER;
                 case LIGHT_CARRIER_DIVISION:
@@ -1806,14 +1896,14 @@ public class PermanentDivisionManager {
      * Division capability families that can be enabled or disabled per hull size for the player fleet's auto-assigner.
      */
     public enum AutoAssignCapability {
-        LINE("Line Combat", "Line", "Standard gun-line combat divisions."),
-        STRIKE("Strike / Fast", "Strike", "Battlecruisers and fast strike divisions."),
-        MISSILE("Missile", "Missile", "Missile and torpedo strike divisions."),
-        BATTLECARRIER("Battlecarrier", "BCV", "Hybrid gun-line capital carrier divisions."),
-        CARRIER("Carrier", "Carrier", "Dedicated carrier divisions."),
-        PHASE("Phase", "Phase", "Cloaked phase cruiser and skimmer divisions."),
-        MISSILE_PHASE("Missile Phase", "Msl Phase", "Standoff missile and autoforge phase divisions."),
-        SERVICE("Service / Aux", "Service", "Civilian logistics and auxiliary groups.");
+        LINE("Line Combat", "Line", "Forms standard gun-line divisions (folds into Force if OFF)."),
+        STRIKE("Strike / Fast", "Strike", "Forms Battlecruiser and Strike divisions (folds into Line if OFF)."),
+        MISSILE("Missile", "Missile", "Forms Missile and Torpedo divisions (folds into Line if OFF)."),
+        BATTLECARRIER("Battlecarrier", "BCV", "Forms Heavy, Medium, and Light Battlecarrier divisions (folds into Line if OFF)."),
+        CARRIER("Carrier", "Carrier", "Forms Fleet, Light, and Escort Carrier divisions (folds into Line if OFF)."),
+        PHASE("Phase", "Phase", "Forms Phase Cruiser and Phase Skimmer divisions (folds into Force if OFF)."),
+        MISSILE_PHASE("Missile Phase", "Msl Phase", "Forms Missile/Autoforge Phase divisions (folds into Phase if OFF)."),
+        SERVICE("Service / Aux", "Service", "Forms civilian Service Groups (folds into Force if OFF).");
 
         public final String displayName;
         public final String shortName;
@@ -1828,12 +1918,84 @@ public class PermanentDivisionManager {
         public boolean supportsHull(AutoAssignHull hull) {
             if (hull == null) return false;
             if (this == BATTLECARRIER) {
-                return hull == AutoAssignHull.BATTLESHIP;
+                return hull != AutoAssignHull.FRIGATE;
             }
             if (this == PHASE || this == MISSILE_PHASE) {
                 return hull != AutoAssignHull.BATTLESHIP;
             }
             return true;
+        }
+
+        /** Plain-English name of the Division Type instantiated when this (Capability x Hull) rule is ON. */
+        public String describeInstantiatedDivision(AutoAssignHull hull) {
+            if (hull == null) return "Force Division";
+            switch (this) {
+                case LINE:
+                    switch (hull) {
+                        case BATTLESHIP: return "Battleship Division";
+                        case CRUISER:    return "Line Cruiser Division";
+                        case DESTROYER:  return "Destroyer Division";
+                        default:         return "Frigate Division";
+                    }
+                case STRIKE:
+                    switch (hull) {
+                        case BATTLESHIP: return "Battlecruiser Division";
+                        case CRUISER:    return "Strike Cruiser Division";
+                        case DESTROYER:  return "Strike Destroyer Division";
+                        default:         return "Strike Frigate Division";
+                    }
+                case MISSILE:
+                    switch (hull) {
+                        case BATTLESHIP: return "Missile Battleship Division";
+                        case CRUISER:    return "Missile Cruiser Division";
+                        case DESTROYER:  return "Missile Destroyer Division";
+                        default:         return "Missile Frigate Division";
+                    }
+                case BATTLECARRIER:
+                    switch (hull) {
+                        case BATTLESHIP: return "Heavy Battlecarrier Division";
+                        case CRUISER:    return "Medium Battlecarrier Division";
+                        default:         return "Light Battlecarrier Division";
+                    }
+                case CARRIER:
+                    switch (hull) {
+                        case BATTLESHIP: return "Fleet Carrier Division";
+                        case CRUISER:    return "Light Carrier Division";
+                        default:         return "Escort Carrier Division";
+                    }
+                case PHASE:
+                    return hull == AutoAssignHull.CRUISER ? "Phase Cruiser Division" : "Phase Division";
+                case MISSILE_PHASE:
+                    return "Missile Phase Division";
+                case SERVICE:
+                    return "Service Group";
+                default:
+                    return "Force Division";
+            }
+        }
+
+        /** Plain-English name of the fallback division where matching ships go when this rule is OFF. */
+        public String describeFallbackWhenDisabled(AutoAssignHull hull) {
+            if (hull == null) return "Force Division";
+            switch (this) {
+                case STRIKE:
+                case MISSILE:
+                case BATTLECARRIER:
+                case CARRIER:
+                    switch (hull) {
+                        case BATTLESHIP: return "Battleship Division (or Force)";
+                        case CRUISER:    return "Line Cruiser Division (or Force)";
+                        case DESTROYER:  return "Destroyer Division (or Force)";
+                        default:         return "Frigate Division (or Force)";
+                    }
+                case MISSILE_PHASE:
+                    return hull == AutoAssignHull.CRUISER ? "Phase Cruiser Division" : "Phase Division";
+                case PHASE:
+                case LINE:
+                case SERVICE:
+                default:
+                    return "Force Division";
+            }
         }
 
         public static AutoAssignCapability fromId(String id, AutoAssignCapability fallback) {
@@ -1847,10 +2009,10 @@ public class PermanentDivisionManager {
     }
 
     /**
-     * Hull size classes that can be enabled or disabled per capability for the player fleet's auto-assigner.
+     * Hull size classes that can be enabled or disabled per capability for division instantiation.
      */
     public enum AutoAssignHull {
-        BATTLESHIP("Battleship", "Battleship", HullSize.CAPITAL_SHIP),
+        BATTLESHIP("Capital", "Capital", HullSize.CAPITAL_SHIP),
         CRUISER("Cruiser", "Cruiser", HullSize.CRUISER),
         DESTROYER("Destroyer", "Destroyer", HullSize.DESTROYER),
         FRIGATE("Frigate", "Frigate", HullSize.FRIGATE);
@@ -2411,6 +2573,7 @@ public class PermanentDivisionManager {
         private EngagementDiscipline engagementDiscipline = EngagementDiscipline.LINE_COHESION;
         private boolean deployInFleetFormation = true;
         private boolean orchestratedAdvance = true;
+        private boolean combatFreightersAsWarships = true;
         private int openingDurationSeconds = 45;
 
         public FleetDoctrineConfig() {
@@ -2462,6 +2625,14 @@ public class PermanentDivisionManager {
 
         private static String schemeKey(AutoAssignCapability cap, AutoAssignHull hull) {
             return cap.name() + "__" + hull.name();
+        }
+
+        public boolean isCombatFreightersAsWarships() {
+            return combatFreightersAsWarships;
+        }
+
+        public void setCombatFreightersAsWarships(boolean enabled) {
+            this.combatFreightersAsWarships = enabled;
         }
 
         public boolean isCapabilityEnabled(AutoAssignCapability cap) {
@@ -2741,7 +2912,7 @@ public class PermanentDivisionManager {
                 return StrikeCraftMissionType.ARMED_RECONNAISSANCE;
             }
             if (dt == DoctrineDivisionType.ESCORT_CARRIER
-                    || dt == DoctrineDivisionType.BATTLECARRIER) {
+                    || (dt != null && dt.isBattlecarrierType())) {
                 return StrikeCraftMissionType.COMBAT_SPACE_PATROL;
             }
             return StrikeCraftMissionType.MATCH_DIVISION;
@@ -2753,10 +2924,12 @@ public class PermanentDivisionManager {
                 return StrikeCraftMissionType.ALPHA_STRIKE;
             }
             if (dt == DoctrineDivisionType.LIGHT_CARRIER
+                    || dt == DoctrineDivisionType.MEDIUM_BATTLECARRIER
                     || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 return StrikeCraftMissionType.DECKLOAD_STRIKE;
             }
-            if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
+            if (dt == DoctrineDivisionType.ESCORT_CARRIER
+                    || dt == DoctrineDivisionType.LIGHT_BATTLECARRIER) {
                 return StrikeCraftMissionType.CYCLIC_STRIKES;
             }
             return StrikeCraftMissionType.MATCH_DIVISION;
@@ -2765,6 +2938,7 @@ public class PermanentDivisionManager {
         public static VoidstrikeTargetingBias defaultVoidstrikeTargetingBiasFor(DoctrineDivisionType dt) {
             if (dt == DoctrineDivisionType.FLEET_CARRIER
                     || dt == DoctrineDivisionType.BATTLECARRIER
+                    || dt == DoctrineDivisionType.MEDIUM_BATTLECARRIER
                     || dt == DoctrineDivisionType.LIGHT_CARRIER
                     || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 return VoidstrikeTargetingBias.CRUISERS_AND_CAPITALS;
@@ -2779,11 +2953,13 @@ public class PermanentDivisionManager {
         public static VoidstrikeTargetObservance defaultVoidstrikeObservanceFor(DoctrineDivisionType dt) {
             if (dt == DoctrineDivisionType.FLEET_CARRIER
                     || dt == DoctrineDivisionType.BATTLECARRIER
+                    || dt == DoctrineDivisionType.MEDIUM_BATTLECARRIER
                     || dt == DoctrineDivisionType.LIGHT_CARRIER
                     || dt == DoctrineDivisionType.CARRIER_GROUP) {
                 return VoidstrikeTargetObservance.HIGH;
             }
-            if (dt == DoctrineDivisionType.ESCORT_CARRIER) {
+            if (dt == DoctrineDivisionType.ESCORT_CARRIER
+                    || dt == DoctrineDivisionType.LIGHT_BATTLECARRIER) {
                 return VoidstrikeTargetObservance.MEDIUM;
             }
             return VoidstrikeTargetObservance.MEDIUM;
@@ -2812,7 +2988,7 @@ public class PermanentDivisionManager {
 
         public static VoidstrikeAoaCorrection defaultVoidstrikeAoaCorrectionFor(DoctrineDivisionType dt) {
             if (dt == DoctrineDivisionType.FLEET_CARRIER
-                    || dt == DoctrineDivisionType.BATTLECARRIER
+                    || (dt != null && dt.isBattlecarrierType())
                     || dt == DoctrineDivisionType.LIGHT_CARRIER
                     || dt == DoctrineDivisionType.ESCORT_CARRIER
                     || dt == DoctrineDivisionType.CARRIER_GROUP) {
@@ -3360,6 +3536,10 @@ public class PermanentDivisionManager {
             if (engDiscObj instanceof String) {
                 cfg.setEngagementDiscipline(EngagementDiscipline.fromId((String) engDiscObj, cfg.getEngagementDiscipline()));
             }
+            Object cfWarshipsObj = map.get("aa_combat_freighters_warships");
+            if (cfWarshipsObj instanceof Boolean) {
+                cfg.setCombatFreightersAsWarships(((Boolean) cfWarshipsObj).booleanValue());
+            }
             Object depFmObj = map.get("bg_deploy_in_formation");
             if (depFmObj instanceof Boolean) {
                 cfg.setDeployInFleetFormation((Boolean) depFmObj);
@@ -3572,6 +3752,7 @@ public class PermanentDivisionManager {
         serialized.put("bg_eng_discipline", cfg.getEngagementDiscipline().name());
         serialized.put("bg_deploy_in_formation", cfg.isDeployInFleetFormation());
         serialized.put("bg_orchestrated_advance", cfg.isOrchestratedAdvance());
+        serialized.put("aa_combat_freighters_warships", cfg.isCombatFreightersAsWarships());
         if (cfg.getSpeedGovernorOverride() != null) {
             serialized.put("bg_speed_governor_override", cfg.getSpeedGovernorOverride());
         }
@@ -4038,6 +4219,12 @@ public class PermanentDivisionManager {
         if (cap == null || hull == null) return;
         FleetDoctrineConfig cfg = getFleetDoctrine();
         cfg.setSchemeEnabled(cap, hull, enabled);
+        saveFleetDoctrine(cfg);
+    }
+
+    public static void updateCombatFreightersAsWarships(boolean enabled) {
+        FleetDoctrineConfig cfg = getFleetDoctrine();
+        cfg.setCombatFreightersAsWarships(enabled);
         saveFleetDoctrine(cfg);
     }
 
@@ -5691,12 +5878,31 @@ public class PermanentDivisionManager {
     }
 
     public static DoctrineHullCategory classifyHullCategory(FleetMemberAPI member) {
+        return classifyHullCategory(member, getFleetDoctrine());
+    }
+
+    public static DoctrineHullCategory classifyHullCategory(FleetMemberAPI member, FleetDoctrineConfig doctrine) {
         if (member == null) return DoctrineHullCategory.FRIGATE;
         ShipHullSpecAPI hullSpec = member.getHullSpec();
         HullSize size = hullSpec != null ? hullSpec.getHullSize() : HullSize.FRIGATE;
         EnumSet<ShipTypeHints> hints = (hullSpec != null && hullSpec.getHints() != null)
                 ? hullSpec.getHints()
                 : EnumSet.noneOf(ShipTypeHints.class);
+
+        boolean isCombatFreighter = ShipCapabilityProfile.isCombatFreighterHull(hullSpec);
+        boolean cfAsWarships = (doctrine == null) || doctrine.isCombatFreightersAsWarships();
+        if (isCombatFreighter) {
+            if (!cfAsWarships) {
+                return DoctrineHullCategory.FREIGHTER;
+            }
+            switch (size) {
+                case CAPITAL_SHIP: return DoctrineHullCategory.CAPITAL;
+                case CRUISER:      return DoctrineHullCategory.CRUISER;
+                case DESTROYER:    return DoctrineHullCategory.DESTROYER;
+                case FRIGATE:
+                default:           return DoctrineHullCategory.FRIGATE;
+            }
+        }
 
         if (hints.contains(ShipTypeHints.TANKER)) {
             return DoctrineHullCategory.TANKER;
@@ -5887,13 +6093,15 @@ public class PermanentDivisionManager {
             case CRUISER_DIVISION:            return 20;
             case STRIKE_CRUISER_DIVISION:     return 21;
             case MISSILE_CRUISER_DIVISION:    return 22;
-            case PHASE_CRUISER_DIVISION:      return 23;
-            case LIGHT_CARRIER_DIVISION:      return 24;
+            case MEDIUM_BATTLECARRIER_DIVISION: return 23;
+            case PHASE_CRUISER_DIVISION:      return 24;
+            case LIGHT_CARRIER_DIVISION:      return 25;
             // 3. Destroyer Weight Class (Medium-Light Combat)
             case DESTROYER_DIVISION:          return 30;
             case STRIKE_DESTROYER_DIVISION:   return 31;
             case MISSILE_DESTROYER_DIVISION:  return 32;
-            case ESCORT_CARRIER_DIVISION:     return 33;
+            case LIGHT_BATTLECARRIER_DIVISION: return 33;
+            case ESCORT_CARRIER_DIVISION:     return 34;
             // 4. Frigate & Phase Weight Class (Light / Specialist Combat)
             case FRIGATE_DIVISION:            return 40;
             case STRIKE_FRIGATE_DIVISION:     return 41;
@@ -6893,13 +7101,15 @@ public class PermanentDivisionManager {
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.CRUISER_DIVISION, lineCruisers, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, buckets.get(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION), 3);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.PHASE_CRUISER_DIVISION, phaseCruisers, 3);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.LIGHT_CARRIER_DIVISION, buckets.get(DivisionArchetype.LIGHT_CARRIER_DIVISION), 3);
 
-        // 3. Destroyer Weight Class (Destroyer, Strike Destroyer, Missile Destroyer, Escort Carrier)
+        // 3. Destroyer Weight Class (Destroyer, Strike Destroyer, Missile Destroyer, Light Battlecarrier, Escort Carrier)
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.DESTROYER_DIVISION, buckets.get(DivisionArchetype.DESTROYER_DIVISION), 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.STRIKE_DESTROYER_DIVISION, buckets.get(DivisionArchetype.STRIKE_DESTROYER_DIVISION), 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_DESTROYER_DIVISION, buckets.get(DivisionArchetype.MISSILE_DESTROYER_DIVISION), 4);
+        chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, buckets.get(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION), 4);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.ESCORT_CARRIER_DIVISION, buckets.get(DivisionArchetype.ESCORT_CARRIER_DIVISION), 4);
 
         // 4. Frigate & Phase Weight Class (Frigate, Strike Frigate, Missile Frigate, Phase, Missile Phase)
@@ -7177,11 +7387,15 @@ public class PermanentDivisionManager {
                 ? hullSpec.getHints()
                 : EnumSet.noneOf(ShipTypeHints.class);
 
-        boolean isAux = member.isCivilian()
-                || hints.contains(ShipTypeHints.CIVILIAN)
-                || hints.contains(ShipTypeHints.FREIGHTER)
-                || hints.contains(ShipTypeHints.TANKER)
-                || hints.contains(ShipTypeHints.LINER);
+        boolean isCombatFreighter = ShipCapabilityProfile.isCombatFreighterHull(hullSpec);
+        boolean cfAsWarships = (doctrine == null) || doctrine.isCombatFreightersAsWarships();
+        boolean isAux = isCombatFreighter
+                ? !cfAsWarships
+                : (member.isCivilian()
+                        || hints.contains(ShipTypeHints.CIVILIAN)
+                        || hints.contains(ShipTypeHints.FREIGHTER)
+                        || hints.contains(ShipTypeHints.TANKER)
+                        || hints.contains(ShipTypeHints.LINER));
         if (isAux) {
             if (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.SERVICE, aaHull)) {
                 return DivisionArchetype.SERVICE_GROUP;
@@ -7324,11 +7538,22 @@ public class PermanentDivisionManager {
             return DivisionArchetype.FORCE_DIVISION;
         }
 
-        // Battlecarriers (e.g. Legion, modded capital BCVs): form Battlecarrier Divisions when enabled,
-        // or fold onto the line of battle inside Battleship Divisions when disabled (e.g. Hegemony)!
-        if (isBattlecarrier
-                && (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.BATTLECARRIER, AutoAssignHull.BATTLESHIP))) {
-            return DivisionArchetype.BATTLECARRIER_DIVISION;
+        // Battlecarriers (Heavy / Medium / Light): form Battlecarrier Divisions when enabled for that hull class,
+        // or fold onto the gunline inside Battleship / Cruiser / Destroyer Divisions when disabled (e.g. Hegemony)!
+        if (isBattlecarrier) {
+            AutoAssignHull bcvHull = (aaHull == AutoAssignHull.FRIGATE) ? AutoAssignHull.DESTROYER : aaHull;
+            if (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.BATTLECARRIER, bcvHull)) {
+                switch (size) {
+                    case CAPITAL_SHIP:
+                        return DivisionArchetype.BATTLECARRIER_DIVISION;
+                    case CRUISER:
+                        return DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION;
+                    case DESTROYER:
+                    case FRIGATE:
+                    default:
+                        return DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION;
+                }
+            }
         }
 
         if (isDedicatedCarrier && (doctrine == null || doctrine.isSchemeEnabled(AutoAssignCapability.CARRIER, aaHull))) {

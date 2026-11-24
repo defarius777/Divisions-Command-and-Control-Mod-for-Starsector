@@ -805,6 +805,10 @@ public final class DivisionNomenclature {
                 return "MISSILE_BATTLESHIP";
             case BATTLECARRIER_DIVISION:
                 return "BATTLECARRIER";
+            case MEDIUM_BATTLECARRIER_DIVISION:
+                return "MEDIUM_BATTLECARRIER";
+            case LIGHT_BATTLECARRIER_DIVISION:
+                return "LIGHT_BATTLECARRIER";
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
             case ESCORT_CARRIER_DIVISION:
@@ -1375,7 +1379,11 @@ public final class DivisionNomenclature {
             case MISSILE_BATTLESHIP_DIVISION:
                 return "Missile Battle";
             case BATTLECARRIER_DIVISION:
-                return "Battlecarrier";
+                return "Heavy Battlecarrier";
+            case MEDIUM_BATTLECARRIER_DIVISION:
+                return "Medium Battlecarrier";
+            case LIGHT_BATTLECARRIER_DIVISION:
+                return "Light Battlecarrier";
             case FLEET_CARRIER_DIVISION:
             case LIGHT_CARRIER_DIVISION:
             case ESCORT_CARRIER_DIVISION:
@@ -1510,10 +1518,12 @@ public final class DivisionNomenclature {
                 return "HIVE UNIT";
             case CRUISER_DIVISION:
             case MISSILE_CRUISER_DIVISION:
+            case MEDIUM_BATTLECARRIER_DIVISION:
             case PHASE_CRUISER_DIVISION:
                 return "OVERSEER UNIT";
             case STRIKE_CRUISER_DIVISION:
             case STRIKE_DESTROYER_DIVISION:
+            case LIGHT_BATTLECARRIER_DIVISION:
             case DESTROYER_DIVISION:
             case MISSILE_DESTROYER_DIVISION:
                 return "ASSAULT UNIT";
@@ -1547,10 +1557,12 @@ public final class DivisionNomenclature {
                 return "TYPE 350";
             case CRUISER_DIVISION:
             case MISSILE_CRUISER_DIVISION:
+            case MEDIUM_BATTLECARRIER_DIVISION:
             case PHASE_CRUISER_DIVISION:
                 return "TYPE 250";
             case STRIKE_CRUISER_DIVISION:
             case STRIKE_DESTROYER_DIVISION:
+            case LIGHT_BATTLECARRIER_DIVISION:
             case MISSILE_DESTROYER_DIVISION:
                 return "TYPE 201";
             case DESTROYER_DIVISION:
@@ -1584,7 +1596,11 @@ public final class DivisionNomenclature {
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Battleship Div";
                     case BATTLECARRIER_DIVISION:
-                        return "Battlecarrier Div";
+                        return "Heavy Battlecarrier Div";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Medium Battlecarrier Div";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Light Battlecarrier Div";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1635,7 +1651,11 @@ public final class DivisionNomenclature {
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Battle Line";
                     case BATTLECARRIER_DIVISION:
-                        return "Battlecarrier Line";
+                        return "Heavy Battlecarrier Line";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Medium Battlecarrier Squadron";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Light Battlecarrier Flotilla";
                     case FLEET_CARRIER_DIVISION:
                         return "Fleet Carrier Wing";
                     case LIGHT_CARRIER_DIVISION:
@@ -1685,7 +1705,11 @@ public final class DivisionNomenclature {
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Capital Group";
                     case BATTLECARRIER_DIVISION:
-                        return "Battlecarrier Asset Group";
+                        return "Heavy Battlecarrier Asset Group";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Medium Battlecarrier Unit";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Light Battlecarrier Unit";
                     case FLEET_CARRIER_DIVISION:
                         return "Heavy Flight Group";
                     case LIGHT_CARRIER_DIVISION:
@@ -1735,7 +1759,11 @@ public final class DivisionNomenclature {
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Missile Battle Phalanx";
                     case BATTLECARRIER_DIVISION:
-                        return "Battlecarrier Phalanx";
+                        return "Heavy Battlecarrier Phalanx";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Medium Battlecarrier Mora";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Light Battlecarrier Lochos";
                     case FLEET_CARRIER_DIVISION:
                         return "Fleet Carrier Mora";
                     case LIGHT_CARRIER_DIVISION:
@@ -1786,6 +1814,10 @@ public final class DivisionNomenclature {
                         return "Guard Missile Line";
                     case BATTLECARRIER_DIVISION:
                         return "Guard Battlecarrier Line";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Guard Battlecarrier Squadron";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Guard Battlecarrier Flotilla";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1834,6 +1866,10 @@ public final class DivisionNomenclature {
                         return "Missile Battle Line";
                     case BATTLECARRIER_DIVISION:
                         return "Armada Battlecarrier Line";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Warden Battlecarrier Squadron";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Warden Battlecarrier Flotilla";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1881,7 +1917,11 @@ public final class DivisionNomenclature {
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Heavy Missile Pack";
                     case BATTLECARRIER_DIVISION:
-                        return "Battlecarrier Raider Pack";
+                        return "Heavy Battlecarrier Pack";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Medium Battlecarrier Pack";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Light Battlecarrier Pack";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:
@@ -1928,7 +1968,11 @@ public final class DivisionNomenclature {
                     case MISSILE_BATTLESHIP_DIVISION:
                         return "Barrage Sub-Ordo";
                     case BATTLECARRIER_DIVISION:
-                        return "Battlecarrier Sub-Ordo";
+                        return "Heavy Battlecarrier Sub-Ordo";
+                    case MEDIUM_BATTLECARRIER_DIVISION:
+                        return "Medium Battlecarrier Sub-Ordo";
+                    case LIGHT_BATTLECARRIER_DIVISION:
+                        return "Light Battlecarrier Fragment";
                     case FLEET_CARRIER_DIVISION:
                     case LIGHT_CARRIER_DIVISION:
                     case ESCORT_CARRIER_DIVISION:

@@ -1666,18 +1666,22 @@ public final class FactionFleetDoctrines {
         boolean aCru = a == DivisionArchetype.CRUISER_DIVISION
                 || a == DivisionArchetype.MISSILE_CRUISER_DIVISION
                 || a == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                || a == DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION
                 || a == DivisionArchetype.PHASE_CRUISER_DIVISION;
         boolean bCru = b == DivisionArchetype.CRUISER_DIVISION
                 || b == DivisionArchetype.MISSILE_CRUISER_DIVISION
                 || b == DivisionArchetype.STRIKE_CRUISER_DIVISION
+                || b == DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION
                 || b == DivisionArchetype.PHASE_CRUISER_DIVISION;
         if (aCru && bCru) return true;
         boolean aDes = a == DivisionArchetype.DESTROYER_DIVISION
                 || a == DivisionArchetype.STRIKE_DESTROYER_DIVISION
-                || a == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+                || a == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                || a == DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION;
         boolean bDes = b == DivisionArchetype.DESTROYER_DIVISION
                 || b == DivisionArchetype.STRIKE_DESTROYER_DIVISION
-                || b == DivisionArchetype.MISSILE_DESTROYER_DIVISION;
+                || b == DivisionArchetype.MISSILE_DESTROYER_DIVISION
+                || b == DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION;
         if (aDes && bDes) return true;
         boolean aFri = a == DivisionArchetype.FRIGATE_DIVISION
                 || a == DivisionArchetype.STRIKE_FRIGATE_DIVISION
@@ -1701,9 +1705,11 @@ public final class FactionFleetDoctrines {
             case FLEET_CARRIER_DIVISION:
                 return Math.max(1, doctrine.getMax(DoctrineHullCategory.CAPITAL));
             case LIGHT_CARRIER_DIVISION:
+            case MEDIUM_BATTLECARRIER_DIVISION:
             case PHASE_CRUISER_DIVISION:
                 return Math.min(3, Math.max(1, doctrine.getMax(DoctrineHullCategory.CRUISER)));
             case ESCORT_CARRIER_DIVISION:
+            case LIGHT_BATTLECARRIER_DIVISION:
                 return Math.min(4, Math.max(1, doctrine.getMax(DoctrineHullCategory.DESTROYER)));
             case CARRIER_GROUP:
                 return 3;
@@ -1783,10 +1789,12 @@ public final class FactionFleetDoctrines {
         List<FleetMemberAPI> missileCapitals = buckets.get(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION);
         List<FleetMemberAPI> strikeCruisers = buckets.get(DivisionArchetype.STRIKE_CRUISER_DIVISION);
         List<FleetMemberAPI> missileCruisers = buckets.get(DivisionArchetype.MISSILE_CRUISER_DIVISION);
+        List<FleetMemberAPI> mediumBattlecarriers = buckets.get(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION);
         List<FleetMemberAPI> phaseCruisers = buckets.get(DivisionArchetype.PHASE_CRUISER_DIVISION);
         List<FleetMemberAPI> lineCruisers = buckets.get(DivisionArchetype.CRUISER_DIVISION);
         List<FleetMemberAPI> strikeDestroyers = buckets.get(DivisionArchetype.STRIKE_DESTROYER_DIVISION);
         List<FleetMemberAPI> missileDestroyers = buckets.get(DivisionArchetype.MISSILE_DESTROYER_DIVISION);
+        List<FleetMemberAPI> lightBattlecarriers = buckets.get(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION);
         List<FleetMemberAPI> destroyers = buckets.get(DivisionArchetype.DESTROYER_DIVISION);
         List<FleetMemberAPI> strikeFrigates = buckets.get(DivisionArchetype.STRIKE_FRIGATE_DIVISION);
         List<FleetMemberAPI> missileFrigates = buckets.get(DivisionArchetype.MISSILE_FRIGATE_DIVISION);
@@ -1839,6 +1847,7 @@ public final class FactionFleetDoctrines {
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.CRUISER_DIVISION, lineCruisers, cruMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_CRUISER_DIVISION, missileCruisers, cruMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.STRIKE_CRUISER_DIVISION, strikeCruisers, cruMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, mediumBattlecarriers, Math.min(3, cruMax), factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.PHASE_CRUISER_DIVISION, phaseCruisers, Math.min(3, cruMax), factionId, nomCat);
 
         // 4. Destroyer Divisions
@@ -1847,6 +1856,7 @@ public final class FactionFleetDoctrines {
         }
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.MISSILE_DESTROYER_DIVISION, missileDestroyers, desMax, factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.STRIKE_DESTROYER_DIVISION, strikeDestroyers, desMax, factionId, nomCat);
+        chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, lightBattlecarriers, Math.min(4, desMax), factionId, nomCat);
         chunkIntoNpcDivisions(specs, seqByArch, fleet, DivisionArchetype.DESTROYER_DIVISION, destroyers, desMax, factionId, nomCat);
 
         // 5. Frigate & Phase Divisions

@@ -35,6 +35,7 @@ divai_battle_music_control,Combat Music Mode,Radio,Division AI Dynamic Music,"Di
 ,,,,,,,,
 divai_sectorHeader,Sector Divisions,Header,Sector Divisions,,,,,
 divai_reinit_sector_divisions,Reinitialize NPC Fleet Divisions,Boolean,false,,"Rebuild division tables and re-sort all non-player fleets in the sector. Click once to arm, then click again to confirm.",,,
+divai_replay_intro_tour,Replay Fleet Intro Tour,Boolean,false,,"Resets the one-time Fleet-screen tooltip walkthrough so it appears the next time you open your Fleet (F) tab.",,,
 ,,,,,,,,
 divai_fleetBattleSizeHeader,Fleet & Battle Size Limits,Header,Fleet & Battle Size Limits,,,,,
 divai_override_fleet_battle_size,Override Fleet & Battle Sizes,Boolean,false,,"When enabled, overrides Starsector's deployment point, ship, and officer limits using the sliders below.",,,

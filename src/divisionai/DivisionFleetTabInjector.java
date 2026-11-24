@@ -45,6 +45,8 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
     private transient ButtonAPI fleetDoctrineButton;
     private transient DivisionEditorDialog activeDialog;
     private transient FleetDoctrineDialog activeDoctrineDialog;
+    private transient DivisionOnboardingOverlay activeOnboarding;
+    private transient float fleetTabSettleTimer = 0f;
     private transient CampaignFleetTooltipOrganizer fleetTooltipOrganizer;
 
     @Override
@@ -73,6 +75,11 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
         DynamicBattleMusicController.ensureCleanedUpOutsideCombat();
 
         if (!CoreUITabId.FLEET.equals(campaignUI.getCurrentCoreTab())) {
+            fleetTabSettleTimer = 0f;
+            if (activeOnboarding != null && !activeOnboarding.isClosed()) {
+                activeOnboarding.close(false);
+            }
+            activeOnboarding = null;
             if (activeDialog != null && !activeDialog.isClosed()) {
                 activeDialog.close();
             }
@@ -105,6 +112,10 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 if (!anyModalOpen) {
                     activeDialog = new DivisionEditorDialog(coreUI);
                     activeDialog.show();
+                    anyModalOpen = true;
+                    if (activeOnboarding != null && !activeOnboarding.isClosed()) {
+                        activeOnboarding.onPlayerOpenedOrganization();
+                    }
                 }
             }
             if (fleetDoctrineButton != null && fleetDoctrineButton.isChecked()) {
@@ -112,6 +123,90 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 if (!anyModalOpen) {
                     activeDoctrineDialog = new FleetDoctrineDialog(coreUI);
                     activeDoctrineDialog.show();
+                    anyModalOpen = true;
+                    if (activeOnboarding != null && !activeOnboarding.isClosed()) {
+                        activeOnboarding.onPlayerOpenedDoctrine();
+                    }
+                }
+            }
+
+            // Note: campaignUI.isShowingDialog() is ALWAYS true when CoreUITabId.FLEET is open (dialogType == CORE_UI),
+            // so only pause the tour when the Escape menu is open. Keep the tour floating on top of our own
+            // FleetDoctrineDialog and DivisionEditorDialog so it walks the player across both screens!
+            if (campaignUI.isShowingMenu()) {
+                if (activeOnboarding != null && !activeOnboarding.isClosed()) {
+                    activeOnboarding.close(false);
+                }
+                activeOnboarding = null;
+            } else if (injectedButtonPanel != null) {
+                fleetTabSettleTimer += Math.max(0.016f, amount);
+                if (activeOnboarding != null && activeOnboarding.isClosed()) {
+                    activeOnboarding = null;
+                }
+                if (activeOnboarding != null) {
+                    activeOnboarding.updateTargetRefs(injectedButtonPanel, fleetDoctrineButton, divisionEditorButton);
+                    if (anyModalOpen) {
+                        activeOnboarding.bringToTop();
+                    }
+                } else if (!anyModalOpen
+                        && fleetTabSettleTimer >= DivisionOnboardingOverlay.SETTLE_DELAY_SECONDS
+                        && DivisionOnboardingOverlay.canAutoStartOnFleetTab(
+                                sector, campaignUI, coreUI, currentTab, injectedButtonPanel, getChildrenCopyHandle)) {
+                    final UIPanelAPI navCoreUI = coreUI;
+                    DivisionOnboardingOverlay.TourNavigator nav = new DivisionOnboardingOverlay.TourNavigator() {
+                        @Override
+                        public void openFleetDoctrine() {
+                            if (activeDialog != null && !activeDialog.isClosed()) {
+                                activeDialog.close();
+                            }
+                            activeDialog = null;
+                            if (activeDoctrineDialog == null || activeDoctrineDialog.isClosed()) {
+                                activeDoctrineDialog = new FleetDoctrineDialog(navCoreUI);
+                                activeDoctrineDialog.show();
+                            }
+                        }
+
+                        @Override
+                        public void closeFleetDoctrine() {
+                            if (activeDoctrineDialog != null && !activeDoctrineDialog.isClosed()) {
+                                activeDoctrineDialog.close();
+                            }
+                            activeDoctrineDialog = null;
+                        }
+
+                        @Override
+                        public FleetDoctrineDialog getActiveDoctrineDialog() {
+                            return activeDoctrineDialog;
+                        }
+
+                        @Override
+                        public void openFleetOrganization() {
+                            if (activeDoctrineDialog != null && !activeDoctrineDialog.isClosed()) {
+                                activeDoctrineDialog.close();
+                            }
+                            activeDoctrineDialog = null;
+                            if (activeDialog == null || activeDialog.isClosed()) {
+                                activeDialog = new DivisionEditorDialog(navCoreUI);
+                                activeDialog.show();
+                            }
+                        }
+
+                        @Override
+                        public void closeFleetOrganization() {
+                            if (activeDialog != null && !activeDialog.isClosed()) {
+                                activeDialog.close();
+                            }
+                            activeDialog = null;
+                        }
+
+                        @Override
+                        public DivisionEditorDialog getActiveOrganizationDialog() {
+                            return activeDialog;
+                        }
+                    };
+                    activeOnboarding = new DivisionOnboardingOverlay(
+                            coreUI, injectedButtonPanel, fleetDoctrineButton, divisionEditorButton, nav);
+                    activeOnboarding.show();
                 }
             }
         } catch (Throwable t) {
@@ -257,7 +352,8 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 tt,
                 fleetDoctrineButton,
                 "Fleet Doctrine & Battle Group Command",
-                "Configure Officer in Tactical Command (OTC) authority, fleet-wide formations, doctrinal division modifiers, auto-assign schemes, hull limits, and division nomenclature.");
+                "Configure Officer in Tactical Command (OTC) authority, fleet-wide formations, doctrinal division modifiers, auto-assign schemes, hull limits, and division nomenclature. Press F2 to view in the Codex.",
+                DivisionCodexSetup.ENTRY_OTC);
 
         float row2Y = btnH + rowGap;
         tt.addImage(wingIconPath, iconW, iconH, 0f);
@@ -281,7 +377,8 @@ public class DivisionFleetTabInjector implements EveryFrameScript {
                 tt,
                 divisionEditorButton,
                 "Fleet Organization (Divisions)",
-                "Organize your fleet into permanent tactical divisions, designate Division Leaders, and customize individual division missions, formations, spacing, and standoff ranges.");
+                "Organize your fleet into permanent tactical divisions, designate Division Leaders, and customize individual division missions, formations, spacing, and standoff ranges. Press F2 to view in the Codex.",
+                DivisionCodexSetup.ENTRY_ORGANIZATION);
 
         injectedButtonPanel.addUIElement(tt).inTL(-5f, 0f);
 

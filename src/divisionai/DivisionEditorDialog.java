@@ -128,6 +128,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     private final UIPanelAPI hostCoreUI;
     private CustomPanelAPI rootModalPanel;
     private CustomPanelAPI contentContainer;
+    private ButtonAPI autoAssignButtonRef = null;
+    private ButtonAPI configureSelectedButtonRef = null;
+    ButtonAPI divisionTypeDropdownButtonRef = null;
     TextFieldAPI activeNameField;
 
     private ScrollPanelAPI overviewLeftScroller = null;
@@ -144,6 +147,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
     // Selected division on Screen 1 (Overview) for quick right-click ship assignment
     private String selectedOverviewDivisionId = null;
     String expandedDropdownKey = null;
+    boolean tuningOptionsExpanded = false;
     boolean carrierOptionsExpanded = false;
     boolean rammingOptionsExpanded = false;
     private boolean closed = false;
@@ -230,6 +234,74 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    public CustomPanelAPI getContentContainer() {
+        return contentContainer;
+    }
+
+    public ButtonAPI getAutoAssignButton() {
+        return autoAssignButtonRef;
+    }
+
+    public ButtonAPI getConfigureSelectedButton() {
+        return configureSelectedButtonRef;
+    }
+
+    public ButtonAPI getDivisionTypeDropdownButton() {
+        return divisionTypeDropdownButtonRef;
+    }
+
+    public boolean isShowingOverview() {
+        return activeDivisionId == null && pendingConfirmAction == null;
+    }
+
+    public boolean isShowingConfigureDivision() {
+        return activeDivisionId != null && pendingConfirmAction == null;
+    }
+
+    public boolean openFirstOrSelectedDivisionForTour() {
+        if (closed) return false;
+        List<PermanentDivisionSpec> divs = PermanentDivisionManager.getPermanentDivisions();
+        if (divs.isEmpty()) {
+            PermanentDivisionManager.autoAssignUnassignedMembers();
+            divs = PermanentDivisionManager.getPermanentDivisions();
+        }
+        if (divs.isEmpty()) {
+            return false;
+        }
+        String targetId = selectedOverviewDivisionId;
+        boolean found = false;
+        if (targetId != null) {
+            for (PermanentDivisionSpec s : divs) {
+                if (targetId.equals(s.id)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            targetId = divs.get(0).id;
+        }
+        activeDivisionId = targetId;
+        selectedOverviewDivisionId = targetId;
+        rebuildContent();
+        return true;
+    }
+
+    public void returnToOverviewForTour() {
+        if (closed) return;
+        if (activeDivisionId != null) {
+            savePendingNameFieldIfAny();
+            activeDivisionId = null;
+            rebuildContent();
+        }
+    }
+
+    public void executeAutoAssignDirect() {
+        if (closed) return;
+        PermanentDivisionManager.autoAssignUnassignedMembers();
+        rebuildContent();
     }
 
     public void close() {
@@ -473,8 +545,22 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         Color positive = Misc.getPositiveHighlightColor();
         Color gray = Misc.getGrayColor();
 
-        // Top-right [X] button
-        TooltipMakerAPI topCloseUi = container.createUIElement(36f, 24f, false);
+        // Top-right [Codex] + [X] buttons
+        TooltipMakerAPI topCloseUi = container.createUIElement(144f, 24f, false);
+        ButtonAPI bCodex = registerButton(
+                topCloseUi.addButton(
+                        "Codex [F2]",
+                        "OPEN_CODEX:" + DivisionCodexSetup.ENTRY_ORGANIZATION,
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        98f,
+                        22f,
+                        0f),
+                "OPEN_CODEX:" + DivisionCodexSetup.ENTRY_ORGANIZATION);
+        bCodex.getPosition().inTL(2f, 1f);
+
         ButtonAPI bTopX = registerButton(
                 topCloseUi.addButton(
                         "X",
@@ -487,9 +573,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                         22f,
                         0f),
                 "CLOSE");
-        bTopX.getPosition().inTL(2f, 1f);
+        bTopX.getPosition().inTL(108f, 1f);
         topCloseUi.setHeightSoFar(24f);
-        container.addUIElement(topCloseUi).inTL(activeDialogWidth - 46f, 8f);
+        container.addUIElement(topCloseUi).inTL(activeDialogWidth - 152f, 8f);
 
         // 1. Header & Top Toolbar
         PermanentDivisionSpec selectedSpec = selectedOverviewDivisionId != null
@@ -497,7 +583,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 : null;
         String selectedDivName = selectedSpec != null ? selectedSpec.name : "None";
 
-        TooltipMakerAPI header = container.createUIElement(activeDialogWidth - 64f, 52f, false);
+        TooltipMakerAPI header = container.createUIElement(activeDialogWidth - 170f, 52f, false);
         header.setTitleOrbitronLarge();
         header.addTitle("FLEET ORGANIZATION", baseColor);
         header.addPara(
@@ -538,7 +624,9 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                 "AUTO_ASSIGN");
         bAutoAssign.setEnabled(!unassigned.isEmpty());
         bAutoAssign.getPosition().inTL(188f, 2f);
+        autoAssignButtonRef = bAutoAssign;
 
+        configureSelectedButtonRef = null;
         if (selectedSpec != null) {
             String openSelectedAct = "OPEN_DIV:" + selectedSpec.id;
             ButtonAPI bOpenSel = registerButton(
@@ -554,6 +642,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
                             0f),
                     openSelectedAct);
             bOpenSel.getPosition().inTL(376f, 2f);
+            configureSelectedButtonRef = bOpenSel;
         }
 
         if (!divisions.isEmpty()) {
@@ -1619,6 +1708,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             return;
         }
         if ("AUTO_ASSIGN".equals(cmd)) {
+            if (DivisionOnboardingOverlay.isTourActiveOnAutoAssign()) {
+                PermanentDivisionManager.autoAssignUnassignedMembers();
+                DivisionOnboardingOverlay.notifyTourAutoAssignPressed();
+                rebuildContent();
+                return;
+            }
             pendingConfirmAction = "EXEC_AUTO_ASSIGN";
             pendingConfirmTitle = "AUTO-ASSIGN SHIPS - ARE YOU SURE?";
             pendingConfirmMessage = "Are you sure you want to automatically assign unassigned fleet ships to divisions based on your Fleet Doctrine?";
@@ -1628,6 +1723,7 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
         }
         if ("EXEC_AUTO_ASSIGN".equals(cmd)) {
             PermanentDivisionManager.autoAssignUnassignedMembers();
+            DivisionOnboardingOverlay.notifyTourAutoAssignPressed();
             rebuildContent();
             return;
         }
@@ -1727,6 +1823,12 @@ public class DivisionEditorDialog extends BaseCustomUIPanelPlugin {
             }
             expandedDropdownKey = null;
             rebuildContent();
+            return;
+        }
+        if (cmd.startsWith("OPEN_CODEX:")) {
+            savePendingNameFieldIfAny();
+            String entryId = cmd.substring("OPEN_CODEX:".length());
+            DivisionCodexSetup.openCodexEntry(entryId);
             return;
         }
         if (cmd.startsWith("SET_OTC_AUTH:")) {

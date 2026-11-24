@@ -35,6 +35,7 @@ public class DivisionAISettings {
 
     public static final String MOD_ID = "division_ai";
     public static final String REINIT_FIELD_ID = "divai_reinit_sector_divisions";
+    public static final String REPLAY_TOUR_FIELD_ID = "divai_replay_intro_tour";
     public static final String CHATTER_VERBOSITY_FIELD_ID = "divai_chatter_verbosity";
     public static final String TSFC_GRAPHICS_QUALITY_FIELD_ID = "divai_tsfc_graphics_quality";
     public static final String TSFC_MINI_SHIP_SPRITES_FIELD_ID = "divai_tsfc_mini_ship_sprites";
@@ -171,6 +172,9 @@ public class DivisionAISettings {
     private static Object trackedReinitButton = null;
     private static boolean lastObservedButtonValue = false;
     private static int reinitPromptState = 0; // 0 = idle, 1 = "Are you sure?", 2 = completed, 3 = queued for campaign load
+    private static Object trackedReplayTourButton = null;
+    private static boolean lastObservedReplayTourValue = false;
+    private static long replayTourResetTimestampMs = 0L;
     private static long promptStateTimestampMs = 0L;
     private static int lastReinitializedFleetCount = 0;
     private static boolean pendingReinitOnGameLoad = false;
@@ -298,7 +302,9 @@ public class DivisionAISettings {
             if (changedList != null) {
                 for (int i = 0; i < changedList.size(); i++) {
                     ChangedSetting cs = changedList.get(i);
-                    if (cs != null && MOD_ID.equals(cs.getModID()) && !REINIT_FIELD_ID.equals(cs.getFieldID())) {
+                    if (cs != null && MOD_ID.equals(cs.getModID())
+                            && !REINIT_FIELD_ID.equals(cs.getFieldID())
+                            && !REPLAY_TOUR_FIELD_ID.equals(cs.getFieldID())) {
                         Object val = cs.getData();
                         if (val != null && applySettingIfChanged(modJson, cs.getFieldID(), val)) {
                             anyChanged = true;
@@ -317,7 +323,7 @@ public class DivisionAISettings {
                     LunaSettingsData data = (LunaSettingsData) keyObj;
                     if (!MOD_ID.equals(data.getModID())) continue;
                     String fieldId = data.getFieldID();
-                    if (fieldId == null || REINIT_FIELD_ID.equals(fieldId)) continue;
+                    if (fieldId == null || REINIT_FIELD_ID.equals(fieldId) || REPLAY_TOUR_FIELD_ID.equals(fieldId)) continue;
 
                     Object widgetVal = null;
                     if (el instanceof LunaUIRadioButton) {
@@ -912,17 +918,59 @@ public class DivisionAISettings {
             }
 
             LunaUIButton foundBtn = null;
+            LunaUIButton foundReplayBtn = null;
             for (LunaUIBaseElement el : elements) {
                 if (el instanceof LunaUIButton) {
                     Object keyObj = el.getKey();
                     if (keyObj instanceof LunaSettingsData) {
                         LunaSettingsData data = (LunaSettingsData) keyObj;
-                        if (MOD_ID.equals(data.getModID()) && REINIT_FIELD_ID.equals(data.getFieldID())) {
-                            foundBtn = (LunaUIButton) el;
-                            break;
+                        if (MOD_ID.equals(data.getModID())) {
+                            if (REINIT_FIELD_ID.equals(data.getFieldID())) {
+                                foundBtn = (LunaUIButton) el;
+                            } else if (REPLAY_TOUR_FIELD_ID.equals(data.getFieldID())) {
+                                foundReplayBtn = (LunaUIButton) el;
+                            }
                         }
                     }
                 }
+            }
+
+            if (foundReplayBtn != null) {
+                foundReplayBtn.setRegularButton(false);
+                long nowReplayMs = System.currentTimeMillis();
+                if (foundReplayBtn != trackedReplayTourButton) {
+                    trackedReplayTourButton = foundReplayBtn;
+                    foundReplayBtn.unselect();
+                    lastObservedReplayTourValue = foundReplayBtn.getValue();
+                }
+                boolean curReplayVal = foundReplayBtn.getValue();
+                if ((curReplayVal != lastObservedReplayTourValue) || foundReplayBtn.isSelected()) {
+                    foundReplayBtn.unselect();
+                    lastObservedReplayTourValue = curReplayVal;
+                    DivisionAISharedData.resetFleetIntro();
+                    replayTourResetTimestampMs = nowReplayMs;
+                    try {
+                        if (Global.getSoundPlayer() != null) {
+                            Global.getSoundPlayer().playUISound("ui_button_pressed", 1f, 1f);
+                        }
+                    } catch (Throwable ignored) {}
+                }
+                LabelAPI rLbl = foundReplayBtn.getButtonText();
+                if (rLbl != null) {
+                    boolean justReset = (nowReplayMs - replayTourResetTimestampMs) < 5000L && replayTourResetTimestampMs > 0L;
+                    String rStr = justReset ? "Tour Reset! Open Fleet (F)" : "Replay Tour";
+                    Color rCol = justReset ? Misc.getPositiveHighlightColor() : Misc.getBasePlayerColor();
+                    rLbl.setText(rStr);
+                    rLbl.setColor(rCol);
+                    foundReplayBtn.setBorderColor(justReset ? Misc.getPositiveHighlightColor() : Misc.getDarkPlayerColor());
+                    float rTw = rLbl.computeTextWidth(rStr);
+                    float rTh = rLbl.computeTextHeight(rStr);
+                    rLbl.getPosition().inTL(
+                            Math.max(4f, (foundReplayBtn.getWidth() - rTw) * 0.5f),
+                            Math.max(2f, (foundReplayBtn.getHeight() - rTh) * 0.5f));
+                }
+            } else {
+                trackedReplayTourButton = null;
             }
 
             if (foundBtn == null) {

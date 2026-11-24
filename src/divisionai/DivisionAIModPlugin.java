@@ -33,9 +33,20 @@ public class DivisionAIModPlugin extends BaseModPlugin {
     }
 
     @Override
+    public void onAboutToStartGeneratingCodex() {
+        DivisionCodexSetup.onAboutToStartGeneratingCodex();
+    }
+
+    @Override
+    public void onCodexDataGenerated() {
+        DivisionCodexSetup.onCodexDataGenerated();
+    }
+
+    @Override
     public void onGameLoad(boolean newGame) {
         CombatPhysicsProfile.invalidateGlobalSpecCache();
         FactionFleetDoctrines.invalidateDoctrineCache();
+        DivisionAISharedData.onGameLoad();
         DivisionAISettings.applyFleetAndBattleSizeOverrides();
         SectorAPI sector = Global.getSector();
         if (sector != null) {

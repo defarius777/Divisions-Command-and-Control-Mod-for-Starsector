@@ -37,6 +37,7 @@ import divisionai.PermanentDivisionManager.VoidstrikeTargetingBias;
 import divisionai.PermanentDivisionManager.VoidstrikeTargetObservance;
 
 import java.awt.Color;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -196,6 +197,20 @@ final class DivisionConfigureSubscreen {
                 "APPLY_NAME");
         bSaveName.getPosition().inTL(304f, 3f);
 
+        ButtonAPI bCodex = dialog.registerButton(
+                nameUi.addButton(
+                        "Codex [F2]",
+                        "OPEN_CODEX:" + DivisionCodexSetup.ENTRY_MISSIONS,
+                        baseColor,
+                        darkColor,
+                        Alignment.MID,
+                        CutStyle.TL_BR,
+                        98f,
+                        22f,
+                        0f),
+                "OPEN_CODEX:" + DivisionCodexSetup.ENTRY_MISSIONS);
+        bCodex.getPosition().inTL(408f, 3f);
+
         nameUi.setHeightSoFar(28f);
         nameRow.addUIElement(nameUi).inTL(0f, 0f);
         top.addCustom(nameRow, 4f);
@@ -234,206 +249,30 @@ final class DivisionConfigureSubscreen {
                 PermanentDivisionManager.resolveEffectiveEngineTelegraph(spec, doctrineCfg);
         DivisionMissionType effOpenMis = PermanentDivisionManager.resolveEffectiveOpeningMission(spec, doctrineCfg);
         DivisionMissionType effMainMis = PermanentDivisionManager.resolveEffectiveMainMission(spec, doctrineCfg);
+        ShipSkillCoordinationMode effSkillCoord =
+                PermanentDivisionManager.resolveEffectiveShipSkillCoordination(spec, doctrineCfg);
 
         leftCol.addSectionHeading(
-                "Formation & Missions",
+                "Role & Standing Orders",
                 highlight,
                 darkColor,
                 Alignment.LMID,
                 2f);
 
-        // 0. Division Type Drop-Down Menu (UI Item G)
+        // 1. Division Type Drop-Down Menu (grouped by assigned hull classes when expanded)
         addDivisionArchetypeDropdownRow(
                 dialog,
                 leftCol,
                 colWidth - 16f,
                 spec.archetype,
+                divMembers,
                 baseColor,
                 darkColor,
                 highlight,
                 positive,
                 gray);
 
-        boolean scaledUi = CombatPhysicsProfile.isGlobalScaledEnvironment();
-        int spacingStep = scaledUi ? 100 : 50;
-        int intervalStep = scaledUi ? 250 : 100;
-
-        // 1. Intra-division spacing row
-        addDivisionSpacingRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                String.format(Locale.ROOT, "Ship Spacing: %du", effIntra),
-                effIntra,
-                spacingStep,
-                PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
-                PermanentDivisionManager.getEffectiveMaxStationSpacingUnits(),
-                "DIV_STATION_SPACING:",
-                spec.customStationSpacing != null,
-                baseColor,
-                darkColor,
-                positive);
-
-        // 2. Inter-division spacing row
-        addDivisionSpacingRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                String.format(Locale.ROOT, "Division Interval: %du", effInter),
-                effInter,
-                intervalStep,
-                PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
-                PermanentDivisionManager.getEffectiveMaxDivisionIntervalUnits(),
-                "DIV_DIVISION_INTERVAL:",
-                spec.customDivisionInterval != null,
-                baseColor,
-                darkColor,
-                positive);
-
-        // 3. Line Standoff distance row (with Auto-Set from Longest Firepower button)
-        addDivisionStandoffRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                effStandoff,
-                longestGunRange,
-                spec.customStandoffRange != null && spec.customStandoffManual,
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        // 4. Preferred Space row (Forward, Middle, Back — auto-selected by some missions or manually set)
-        addDivisionPreferredSpaceRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                effPrefSpace,
-                spec.customLineStation != null,
-                baseColor,
-                darkColor,
-                positive);
-
-        // 4b. Naval Formation row (10 formations with icons + Inherit)
-        addDivisionFormationRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                effFormation,
-                spec.customFormation != null,
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        // 4c. Doctrinal Division Movement Stickiness row (Strict / Balanced / Loose / Free + Inherit)
-        addDivisionMovementStickinessRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                effStickiness,
-                effStickiness,
-                spec.customMovementStickiness != null,
-                baseColor,
-                darkColor,
-                positive);
-
-        if (spec.archetype != DivisionArchetype.SERVICE_GROUP
-                && (doctrineCfg != null && doctrineCfg.isSpeedGovernorEnabled())) {
-            addDivisionEngineTelegraphRow(
-                    dialog,
-                    leftCol,
-                    colWidth - 16f,
-                    effTelegraph,
-                    spec.customEngineTelegraph != null,
-                    baseColor,
-                    darkColor,
-                    positive);
-        }
-
-        if (spec.archetype != null && !spec.archetype.isCarrierArchetype()
-                && spec.archetype != DivisionArchetype.SERVICE_GROUP) {
-            DivisionSetpieceAttack effSetpiece =
-                    PermanentDivisionManager.resolveEffectiveSetpieceAttack(spec, doctrineCfg);
-            addDivisionSetpieceAttackRow(
-                    dialog,
-                    leftCol,
-                    colWidth - 16f,
-                    effSetpiece,
-                    spec.customSetpieceAttack != null,
-                    baseColor,
-                    darkColor,
-                    highlight);
-        }
-
-        ShipSkillCoordinationMode effSkillCoord =
-                PermanentDivisionManager.resolveEffectiveShipSkillCoordination(spec, doctrineCfg);
-        addDivisionShipSkillCoordinationRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                effSkillCoord,
-                spec.customShipSkillCoordination != null,
-                baseColor,
-                darkColor,
-                highlight,
-                positive);
-
-        DivisionRammingMode effRamMode =
-                PermanentDivisionManager.resolveEffectiveRammingMode(spec, doctrineCfg);
-        DivisionRammingTargetScope effRamScope =
-                PermanentDivisionManager.resolveEffectiveRammingTargetScope(spec, doctrineCfg);
-        int effRamSlots =
-                PermanentDivisionManager.resolveEffectiveMaxRammingSlots(spec, doctrineCfg);
-        addDivisionRammingOptionsToggleRow(
-                dialog,
-                leftCol,
-                colWidth - 16f,
-                dialog.rammingOptionsExpanded,
-                effRamMode,
-                effRamScope,
-                effRamSlots,
-                baseColor,
-                darkColor,
-                highlight,
-                positive,
-                gray);
-        if (dialog.rammingOptionsExpanded) {
-            addDivisionRammingModeRow(
-                    dialog,
-                    leftCol,
-                    colWidth - 16f,
-                    effRamMode,
-                    spec.customRammingMode != null,
-                    baseColor,
-                    darkColor,
-                    highlight,
-                    positive);
-            addDivisionRammingTargetScopeRow(
-                    dialog,
-                    leftCol,
-                    colWidth - 16f,
-                    effRamScope,
-                    spec.customRammingTargetScope != null,
-                    baseColor,
-                    darkColor,
-                    highlight,
-                    positive);
-            addDivisionVoidstrikeDepthRow(
-                    dialog,
-                    leftCol,
-                    colWidth - 16f,
-                    "Max Ram Slots: " + effRamSlots,
-                    effRamSlots,
-                    spec.customMaxRammingSlots != null,
-                    "DIV_RAM_SLOTS:",
-                    baseColor,
-                    darkColor,
-                    highlight,
-                    positive);
-        }
-
-        // 5. Opening Mission Drop-Down (0 - openingDurationSeconds)
+        // 2. Opening Mission Drop-Down (0 - openingDurationSeconds)
         addDivisionMissionDropdownRow(
                 dialog,
                 leftCol,
@@ -449,7 +288,7 @@ final class DivisionConfigureSubscreen {
                 positive,
                 gray);
 
-        // 6. Main Mission Drop-Down (rest of battle)
+        // 3. Main Mission Drop-Down (rest of battle)
         addDivisionMissionDropdownRow(
                 dialog,
                 leftCol,
@@ -465,7 +304,172 @@ final class DivisionConfigureSubscreen {
                 highlight,
                 gray);
 
-        // 7. Strike Craft & Wing Voidstrike Behavior Settings (collapsed under "Strike Craft Options")
+        // Plain-English live battle plan summary so players don't need to decode mission names by memory
+        String ordersPlanText = (effOpenMis == effMainMis)
+                ? ("Battle Plan: " + effMainMis.summary)
+                : ("Battle Plan: Opens with " + effOpenMis.dropdownLabel + " ("
+                        + trimTrailingPeriod(effOpenMis.summary) + "), then shifts to "
+                        + effMainMis.dropdownLabel + " (" + trimTrailingPeriod(effMainMis.summary) + ").");
+        LabelAPI planPara = leftCol.addPara(ordersPlanText, gray, 3f);
+        DivisionUiWidgets.addTooltip(
+                leftCol,
+                (com.fs.starfarer.api.ui.UIComponentAPI) planPara,
+                "Active Standing Orders",
+                ordersPlanText + " Officer personality on your Division Leader shapes how aggressively ships press attacks or rotate out on flux.",
+                DivisionCodexSetup.ENTRY_MISSIONS);
+
+        // 4. Battle-line Station row (Van / Center / Rear + Inherit)
+        addDivisionPreferredSpaceRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                effPrefSpace,
+                spec.customLineStation != null,
+                baseColor,
+                darkColor,
+                positive);
+
+        // 5. Line Standoff distance row (with Match Guns button)
+        addDivisionStandoffRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                effStandoff,
+                longestGunRange,
+                spec.customStandoffRange != null && spec.customStandoffManual,
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        leftCol.addSectionHeading(
+                "Formation & Tactical Tuning",
+                highlight,
+                darkColor,
+                Alignment.LMID,
+                6f);
+
+        // 6. Naval Formation row (10 formations with icons + Inherit)
+        addDivisionFormationRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                effFormation,
+                spec.customFormation != null,
+                baseColor,
+                darkColor,
+                highlight,
+                positive);
+
+        // 7. Doctrinal Division Movement Stickiness / Cohesion row (Strict / Balanced / Loose / Free + Inherit)
+        addDivisionMovementStickinessRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                effStickiness,
+                effStickiness,
+                spec.customMovementStickiness != null,
+                baseColor,
+                darkColor,
+                positive);
+
+        // 8. Spacing & C2 Tuning (collapsed by default to keep Configure Division clean and easy to scan)
+        boolean hasCustomTuning = spec.customStationSpacing != null
+                || spec.customDivisionInterval != null
+                || spec.customEngineTelegraph != null
+                || spec.customSetpieceAttack != null
+                || spec.customShipSkillCoordination != null;
+        addDivisionTuningOptionsToggleRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                dialog.tuningOptionsExpanded,
+                hasCustomTuning,
+                effIntra,
+                effInter,
+                effSkillCoord,
+                baseColor,
+                darkColor,
+                highlight,
+                positive,
+                gray);
+
+        if (dialog.tuningOptionsExpanded) {
+            boolean scaledUi = CombatPhysicsProfile.isGlobalScaledEnvironment();
+            int spacingStep = scaledUi ? 100 : 50;
+            int intervalStep = scaledUi ? 250 : 100;
+
+            addDivisionSpacingRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    String.format(Locale.ROOT, "Ship Spacing: %du", effIntra),
+                    effIntra,
+                    spacingStep,
+                    PermanentDivisionManager.MIN_STATION_SPACING_UNITS,
+                    PermanentDivisionManager.getEffectiveMaxStationSpacingUnits(),
+                    "DIV_STATION_SPACING:",
+                    spec.customStationSpacing != null,
+                    baseColor,
+                    darkColor,
+                    positive);
+
+            addDivisionSpacingRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    String.format(Locale.ROOT, "Division Interval: %du", effInter),
+                    effInter,
+                    intervalStep,
+                    PermanentDivisionManager.MIN_DIVISION_INTERVAL_UNITS,
+                    PermanentDivisionManager.getEffectiveMaxDivisionIntervalUnits(),
+                    "DIV_DIVISION_INTERVAL:",
+                    spec.customDivisionInterval != null,
+                    baseColor,
+                    darkColor,
+                    positive);
+
+            if (spec.archetype != DivisionArchetype.SERVICE_GROUP
+                    && (doctrineCfg != null && doctrineCfg.isSpeedGovernorEnabled())) {
+                addDivisionEngineTelegraphRow(
+                        dialog,
+                        leftCol,
+                        colWidth - 16f,
+                        effTelegraph,
+                        spec.customEngineTelegraph != null,
+                        baseColor,
+                        darkColor,
+                        positive);
+            }
+
+            if (spec.archetype != null && !spec.archetype.isCarrierArchetype()
+                    && spec.archetype != DivisionArchetype.SERVICE_GROUP) {
+                DivisionSetpieceAttack effSetpiece =
+                        PermanentDivisionManager.resolveEffectiveSetpieceAttack(spec, doctrineCfg);
+                addDivisionSetpieceAttackRow(
+                        dialog,
+                        leftCol,
+                        colWidth - 16f,
+                        effSetpiece,
+                        spec.customSetpieceAttack != null,
+                        baseColor,
+                        darkColor,
+                        highlight);
+            }
+
+            addDivisionShipSkillCoordinationRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effSkillCoord,
+                    spec.customShipSkillCoordination != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+        }
+
+        // 9. Strike Craft & Wing Voidstrike Behavior Settings (collapsed under "Strike Craft Options")
         StrikeCraftMissionType effScOpenMis =
                 PermanentDivisionManager.resolveEffectiveStrikeCraftOpeningMission(spec, doctrineCfg);
         StrikeCraftMissionType effScMainMis =
@@ -722,6 +726,61 @@ final class DivisionConfigureSubscreen {
                     effVsWidth,
                     spec.customVoidstrikeSquadronWidth != null,
                     "DIV_VS_WIDTH:",
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+        }
+
+        // 10. Ramming Options (collapsed by default)
+        DivisionRammingMode effRamMode =
+                PermanentDivisionManager.resolveEffectiveRammingMode(spec, doctrineCfg);
+        DivisionRammingTargetScope effRamScope =
+                PermanentDivisionManager.resolveEffectiveRammingTargetScope(spec, doctrineCfg);
+        int effRamSlots =
+                PermanentDivisionManager.resolveEffectiveMaxRammingSlots(spec, doctrineCfg);
+        addDivisionRammingOptionsToggleRow(
+                dialog,
+                leftCol,
+                colWidth - 16f,
+                dialog.rammingOptionsExpanded,
+                effRamMode,
+                effRamScope,
+                effRamSlots,
+                baseColor,
+                darkColor,
+                highlight,
+                positive,
+                gray);
+        if (dialog.rammingOptionsExpanded) {
+            addDivisionRammingModeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effRamMode,
+                    spec.customRammingMode != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+            addDivisionRammingTargetScopeRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    effRamScope,
+                    spec.customRammingTargetScope != null,
+                    baseColor,
+                    darkColor,
+                    highlight,
+                    positive);
+            addDivisionVoidstrikeDepthRow(
+                    dialog,
+                    leftCol,
+                    colWidth - 16f,
+                    "Max Ram Slots: " + effRamSlots,
+                    effRamSlots,
+                    spec.customMaxRammingSlots != null,
+                    "DIV_RAM_SLOTS:",
                     baseColor,
                     darkColor,
                     highlight,
@@ -1613,10 +1672,12 @@ final class DivisionConfigureSubscreen {
             DivisionArchetype.CRUISER_DIVISION,
             DivisionArchetype.STRIKE_CRUISER_DIVISION,
             DivisionArchetype.MISSILE_CRUISER_DIVISION,
+            DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION,
             DivisionArchetype.PHASE_CRUISER_DIVISION,
             DivisionArchetype.DESTROYER_DIVISION,
             DivisionArchetype.STRIKE_DESTROYER_DIVISION,
             DivisionArchetype.MISSILE_DESTROYER_DIVISION,
+            DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION,
             DivisionArchetype.FRIGATE_DIVISION,
             DivisionArchetype.STRIKE_FRIGATE_DIVISION,
             DivisionArchetype.MISSILE_FRIGATE_DIVISION,
@@ -1630,11 +1691,180 @@ final class DivisionConfigureSubscreen {
             DivisionArchetype.FORCE_DIVISION
     };
 
+    private static String trimTrailingPeriod(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        if (t.endsWith(".")) {
+            return t.substring(0, t.length() - 1);
+        }
+        return t;
+    }
+
+    private static String describeArchetypeRole(DivisionArchetype arch) {
+        if (arch == null) return "Mixed tactical division.";
+        switch (arch) {
+            case BATTLESHIP_DIVISION:
+                return "Heavy capital gunline anvil; anchors the center and trades fire.";
+            case BATTLECRUISER_DIVISION:
+                return "Fast capital strike group; exploits flanks and weak points.";
+            case MISSILE_BATTLESHIP_DIVISION:
+                return "Long-range capital missile battery; fires heavy salvos from standoff.";
+            case BATTLECARRIER_DIVISION:
+                return "Heavy capital flight-deck division; fights on the gunline while launching wings.";
+            case MEDIUM_BATTLECARRIER_DIVISION:
+                return "Cruiser battlecarrier division; trades medium-range fire while flying tactical wings.";
+            case LIGHT_BATTLECARRIER_DIVISION:
+                return "Destroyer/light battlecarrier division; screens flanks while projecting strike wings.";
+            case CRUISER_DIVISION:
+                return "Mainstay cruiser battle line; holds center or flanks in sustained gunfights.";
+            case STRIKE_CRUISER_DIVISION:
+                return "Fast assault cruisers; closes rapidly to overwhelm isolated targets.";
+            case MISSILE_CRUISER_DIVISION:
+                return "Missile cruiser battery; delivers standoff and ToT missile salvos.";
+            case PHASE_CRUISER_DIVISION:
+                return "Cloaked heavy cruisers; infiltrates flanks for high-burst ambushes.";
+            case DESTROYER_DIVISION:
+                return "Escort and line-support destroyers; screens capitals and contests flanks.";
+            case STRIKE_DESTROYER_DIVISION:
+                return "Aggressive attack destroyers; hunts flankers and runs burst passes.";
+            case MISSILE_DESTROYER_DIVISION:
+                return "Torpedo and missile destroyers; launches coordinated standoff volleys.";
+            case FRIGATE_DIVISION:
+                return "Fast scouting and screening frigates; captures points and guards flanks.";
+            case STRIKE_FRIGATE_DIVISION:
+                return "Wolfpack attack frigates; swarms isolated ships and rear arcs.";
+            case MISSILE_FRIGATE_DIVISION:
+                return "Standoff missile frigates; harasses from range and finishes crippled hulls.";
+            case FLEET_CARRIER_DIVISION:
+                return "Heavy fleet carriers; stays astern while projecting Voidstrike wings.";
+            case LIGHT_CARRIER_DIVISION:
+                return "Medium/light carriers; provides flexible fighter cover and strikes.";
+            case ESCORT_CARRIER_DIVISION:
+                return "Close-support carriers; accompanies the battle line with CAP fighters.";
+            case CARRIER_GROUP:
+                return "Composite carrier + escort group; screens its own flight decks in combat.";
+            case PHASE_DIVISION:
+                return "Phase wolfpack; uses cloak mobility to flank and strike exposed hulls.";
+            case MISSILE_PHASE_DIVISION:
+                return "Phase torpedo/missile group; cloaks into launch range for alpha volleys.";
+            case SERVICE_GROUP:
+                return "Logistics, civilian, and auxiliary ships; stays clear of enemy fire.";
+            case FORCE_DIVISION:
+            default:
+                return "General mixed-hull task force; adapts to assigned ships and missions.";
+        }
+    }
+
+    private static boolean isArchetypeMatchedToMembers(DivisionArchetype arch, List<FleetMemberAPI> members) {
+        if (arch == null || members == null || members.isEmpty()) return true;
+        boolean hasCap = false;
+        boolean hasCruiser = false;
+        boolean hasDestroyer = false;
+        boolean hasFrigate = false;
+        boolean hasCarrier = false;
+        boolean hasPhase = false;
+        boolean hasCiv = false;
+        for (FleetMemberAPI m : members) {
+            if (m == null || m.getHullSpec() == null) continue;
+            try {
+                com.fs.starfarer.api.combat.ShipAPI.HullSize hs = m.getHullSpec().getHullSize();
+                if (hs == com.fs.starfarer.api.combat.ShipAPI.HullSize.CAPITAL_SHIP) hasCap = true;
+                else if (hs == com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER) hasCruiser = true;
+                else if (hs == com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER) hasDestroyer = true;
+                else if (hs == com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE) hasFrigate = true;
+                if (m.getHullSpec().isPhase()) hasPhase = true;
+                if (m.isCivilian()) hasCiv = true;
+                if (m.getHullSpec().getFighterBays() > 0
+                        || (m.getStats() != null && m.getStats().getNumFighterBays().getModifiedInt() > 0)) {
+                    hasCarrier = true;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (arch == DivisionArchetype.FORCE_DIVISION) return true;
+        if (arch == DivisionArchetype.SERVICE_GROUP) return hasCiv;
+        if (arch == DivisionArchetype.CARRIER_GROUP) return hasCarrier;
+        if (arch == DivisionArchetype.FLEET_CARRIER_DIVISION) return hasCarrier && (hasCap || hasCruiser);
+        if (arch == DivisionArchetype.LIGHT_CARRIER_DIVISION || arch == DivisionArchetype.ESCORT_CARRIER_DIVISION) {
+            return hasCarrier && (hasCruiser || hasDestroyer || hasFrigate);
+        }
+        if (arch == DivisionArchetype.BATTLECARRIER_DIVISION) return hasCap && hasCarrier;
+        if (arch == DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION) return hasCruiser && hasCarrier;
+        if (arch == DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION) return (hasDestroyer || hasFrigate) && hasCarrier;
+        if (arch.isBattleshipArchetype()) return hasCap;
+        if (arch == DivisionArchetype.PHASE_CRUISER_DIVISION) return hasCruiser && hasPhase;
+        if (arch.isCruiserArchetype()) return hasCruiser;
+        if (arch.isDestroyerArchetype()) return hasDestroyer;
+        if (arch.isFrigateArchetype()) return hasFrigate;
+        if (arch.isPhaseArchetype()) return hasPhase;
+        return false;
+    }
+
+    private static void addDivisionTuningOptionsToggleRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            boolean expanded,
+            boolean hasCustomTuning,
+            int effIntra,
+            int effInter,
+            ShipSkillCoordinationMode effSkillCoord,
+            Color baseColor,
+            Color darkColor,
+            Color highlight,
+            Color positive,
+            Color gray) {
+
+        CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
+        TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
+
+        LabelAPI tunLbl = rowUi.addPara("Spacing & C2 Tuning:", 0f, baseColor);
+        float tunLblBot = DivisionUiWidgets.wrapLabelInPlace(tunLbl, CONTROL_COL_X - 12f, 4f, 4f);
+        DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) tunLbl, "Spacing & C2 Tuning:");
+
+        String toggleAct = "TOGGLE_DIV_TUNING_OPTIONS";
+        String btnText = (expanded ? "[^] " : "[v] ") + "Spacing & C2 Tuning";
+        ButtonAPI bToggle = dialog.registerButton(
+                rowUi.addButton(
+                        btnText,
+                        toggleAct,
+                        expanded ? highlight : (hasCustomTuning ? positive : baseColor),
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.TL_BR,
+                        204f,
+                        21f,
+                        0f),
+                toggleAct);
+        if (expanded || hasCustomTuning) {
+            bToggle.highlight();
+        }
+        bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
+
+        String summary = String.format(
+                Locale.ROOT,
+                "%du / %du  |  %s",
+                effIntra,
+                effInter,
+                effSkillCoord != null ? effSkillCoord.displayName : "Synchronized");
+        LabelAPI sumLbl = rowUi.addPara(summary, 0f, hasCustomTuning ? positive : gray);
+        float sumX = CONTROL_COL_X + 212f;
+        float availRight = rowWidth - sumX - 6f;
+        float sumBot = (availRight >= 80f)
+                ? DivisionUiWidgets.wrapLabelInPlace(sumLbl, availRight, sumX, 4f)
+                : DivisionUiWidgets.wrapLabelInPlace(sumLbl, rowWidth - CONTROL_COL_X - 8f, CONTROL_COL_X, 25f);
+
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(26f, Math.max(tunLblBot, sumBot) + 4f));
+        rowPanel.addUIElement(rowUi).inTL(0f, 0f);
+        col.addCustom(rowPanel, 2f);
+    }
+
     private static void addDivisionArchetypeDropdownRow(
             final DivisionEditorDialog dialog,
             TooltipMakerAPI col,
             float rowWidth,
             DivisionArchetype currentArchetype,
+            List<FleetMemberAPI> divMembers,
             Color baseColor,
             Color darkColor,
             Color highlight,
@@ -1644,11 +1874,12 @@ final class DivisionConfigureSubscreen {
         String dropdownKey = "DIV_ARCH_DD";
         boolean expanded = dropdownKey.equals(dialog.expandedDropdownKey);
         DivisionArchetype curr = currentArchetype != null ? currentArchetype : DivisionArchetype.FORCE_DIVISION;
+        String roleDesc = describeArchetypeRole(curr);
 
         CustomPanelAPI rowPanel = Global.getSettings().createCustom(rowWidth, 26f, dialog.subPanelPlugin);
         TooltipMakerAPI rowUi = rowPanel.createUIElement(rowWidth, 26f, false);
         LabelAPI archLbl = rowUi.addPara("Division Type:", 0f, baseColor);
-        DivisionUiWidgets.wrapLabelInPlace(archLbl, CONTROL_COL_X - 12f, 4f, 4f);
+        float lblBot = DivisionUiWidgets.wrapLabelInPlace(archLbl, CONTROL_COL_X - 12f, 4f, 4f);
         DivisionUiWidgets.attachRowLabelTooltip(rowUi, (com.fs.starfarer.api.ui.UIComponentAPI) archLbl, "Division Type:");
 
         String toggleAct = "TOGGLE_DD:" + dropdownKey;
@@ -1669,38 +1900,91 @@ final class DivisionConfigureSubscreen {
             bToggle.highlight();
         }
         bToggle.getPosition().inTL(CONTROL_COL_X, 2f);
+        dialog.divisionTypeDropdownButtonRef = bToggle;
+        DivisionUiWidgets.addTooltip(
+                rowUi,
+                bToggle,
+                "Division Type: " + curr.shortPrefix,
+                roleDesc + " Sets which Fleet Doctrine defaults (missions, formation, standoff, and spacing) this division inherits.",
+                DivisionCodexSetup.ENTRY_ORGANIZATION);
 
-        rowUi.setHeightSoFar(26f);
+        LabelAPI roleHintLbl = rowUi.addPara(roleDesc, 0f, gray);
+        float roleBot = DivisionUiWidgets.wrapLabelInPlace(
+                roleHintLbl, rowWidth - CONTROL_COL_X - 8f, CONTROL_COL_X, 25f);
+        DivisionUiWidgets.resizeRowToFit(rowPanel, rowUi, rowWidth, Math.max(26f, Math.max(lblBot, roleBot) + 4f));
         rowPanel.addUIElement(rowUi).inTL(0f, 0f);
         col.addCustom(rowPanel, 2f);
 
         if (expanded) {
+            boolean hasShips = divMembers != null && !divMembers.isEmpty();
+            List<DivisionArchetype> primaryList = new ArrayList<>();
+            List<DivisionArchetype> otherList = new ArrayList<>();
             for (DivisionArchetype arch : CONFIGURABLE_ARCHETYPES) {
-                boolean selected = (arch == curr);
-                CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, dialog.subPanelPlugin);
-                TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
-                String selAct = "SET_ARCH:" + arch.name();
-                ButtonAPI bOpt = dialog.registerButton(
-                        optUi.addButton(
-                                (selected ? "* " : "   ") + arch.shortPrefix,
-                                selAct,
-                                selected ? positive : baseColor,
-                                darkColor,
-                                Alignment.LMID,
-                                CutStyle.ALL,
-                                274f,
-                                20f,
-                                0f),
-                        selAct);
-                if (selected) {
-                    bOpt.highlight();
+                if (!hasShips || arch == curr || isArchetypeMatchedToMembers(arch, divMembers)) {
+                    primaryList.add(arch);
+                } else {
+                    otherList.add(arch);
                 }
-                bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
-                optUi.setHeightSoFar(24f);
-                optPanel.addUIElement(optUi).inTL(0f, 0f);
-                col.addCustom(optPanel, 1f);
+            }
+
+            if (hasShips && !otherList.isEmpty()) {
+                LabelAPI recHdr = col.addPara("Matching Assigned Hulls:", highlight, 2f);
+                DivisionUiWidgets.addTooltip(
+                        col,
+                        (com.fs.starfarer.api.ui.UIComponentAPI) recHdr,
+                        "Matching Assigned Hulls",
+                        "Division types matching the hull sizes, flight decks, or phase coils currently assigned to this division.",
+                        DivisionCodexSetup.ENTRY_ORGANIZATION);
+            }
+            for (DivisionArchetype arch : primaryList) {
+                addSingleArchetypeOptionRow(dialog, col, rowWidth, arch, arch == curr, baseColor, darkColor, positive);
+            }
+            if (hasShips && !otherList.isEmpty()) {
+                col.addPara("Other Division Types:", gray, 4f);
+                for (DivisionArchetype arch : otherList) {
+                    addSingleArchetypeOptionRow(dialog, col, rowWidth, arch, arch == curr, baseColor, darkColor, positive);
+                }
             }
         }
+    }
+
+    private static void addSingleArchetypeOptionRow(
+            final DivisionEditorDialog dialog,
+            TooltipMakerAPI col,
+            float rowWidth,
+            DivisionArchetype arch,
+            boolean selected,
+            Color baseColor,
+            Color darkColor,
+            Color positive) {
+        CustomPanelAPI optPanel = Global.getSettings().createCustom(rowWidth, 24f, dialog.subPanelPlugin);
+        TooltipMakerAPI optUi = optPanel.createUIElement(rowWidth, 24f, false);
+        String selAct = "SET_ARCH:" + arch.name();
+        ButtonAPI bOpt = dialog.registerButton(
+                optUi.addButton(
+                        (selected ? "* " : "   ") + arch.shortPrefix,
+                        selAct,
+                        selected ? positive : baseColor,
+                        darkColor,
+                        Alignment.LMID,
+                        CutStyle.ALL,
+                        274f,
+                        20f,
+                        0f),
+                selAct);
+        if (selected) {
+            bOpt.highlight();
+        }
+        bOpt.getPosition().inTL(CONTROL_COL_X + 12f, 2f);
+        DivisionUiWidgets.addTooltip(
+                optUi,
+                bOpt,
+                arch.shortPrefix,
+                describeArchetypeRole(arch),
+                DivisionCodexSetup.ENTRY_ORGANIZATION);
+        optUi.setHeightSoFar(24f);
+        optPanel.addUIElement(optUi).inTL(0f, 0f);
+        col.addCustom(optPanel, 1f);
     }
 
     private static void addDivisionCarrierOptionsToggleRow(
@@ -1812,6 +2096,12 @@ final class DivisionConfigureSubscreen {
     }
 
     static boolean handleDivisionOverrideAction(DivisionEditorDialog dialog, String cmd) {
+        if ("TOGGLE_DIV_TUNING_OPTIONS".equals(cmd)) {
+            dialog.savePendingNameFieldIfAny();
+            dialog.tuningOptionsExpanded = !dialog.tuningOptionsExpanded;
+            dialog.rebuildContent();
+            return true;
+        }
         if ("TOGGLE_DIV_CARRIER_OPTIONS".equals(cmd)) {
             dialog.savePendingNameFieldIfAny();
             dialog.carrierOptionsExpanded = !dialog.carrierOptionsExpanded;

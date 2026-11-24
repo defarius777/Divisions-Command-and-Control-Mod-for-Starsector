@@ -820,6 +820,7 @@ public class StarsectorUISimulator {
 
             // 8. Simulate 1:1 720p (1280x720) & 768p Responsive UI Viewport Suite (Doctrine, Editor, Configure, Deployment Modals & Crowded Sidebar)
             boolean responsive720pOk = simulate720pAnd768pViewportSuite1To1(hullSpec, humanCmdr);
+            boolean onboardingCodexClarityOk = simulateOnboardingCodexAndConfigureClarity1To1();
 
             boolean allSimOk = allFormationSpritesCenteredOk
                     && verifiedSprites == 22
@@ -835,14 +836,15 @@ public class StarsectorUISimulator {
                     && divisionEditorDialogOk
                     && campaignTooltipSimOk
                     && warroomBattleSuiteOk
-                    && responsive720pOk;
+                    && responsive720pOk
+                    && onboardingCodexClarityOk;
 
             res.record(
                     allSimOk,
                     "1:1 Starsector Obfuscated UI Simulation (Deployment formation selector, campaign dialogs & 30 formation sprites)",
                     String.format(
                             Locale.ROOT,
-                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, deployPursuit=%b, doctrineDialog=%b, editorDialog=%b, campaignTooltip1To1=%b, warroomBattleSuite1To1=%b, responsive720p1To1=%b",
+                            "divisionSprites=%d, fleetSprites=%d(%b), deployStd=%b, deployAlpha=%b, deployMidBattle=%b, deployPursuit=%b, doctrineDialog=%b, editorDialog=%b, campaignTooltip1To1=%b, warroomBattleSuite1To1=%b, responsive720p1To1=%b, onboardingCodex=%b",
                             verifiedSprites,
                             verifiedFleetSprites,
                             allFleetFormationSpritesOk,
@@ -854,7 +856,12 @@ public class StarsectorUISimulator {
                             divisionEditorDialogOk,
                             campaignTooltipSimOk,
                             warroomBattleSuiteOk,
-                            responsive720pOk));
+                            responsive720pOk,
+                            onboardingCodexClarityOk));
+            res.record(
+                    onboardingCodexClarityOk,
+                    "1:1 Soft Fleet Intro Tour (Galatia/Modal Conflict Guards), 0.98a Codex (6 Entries + F2 Links) & Easier-to-Understand Configure UI",
+                    "Verified 4-step non-blocking Fleet coachmark (1080p & 720p), Galatia/modal guards, cross-save persistence, Spacer's Manual & LunaLib Codex generation, F2 links, and Role & Standing Orders hierarchy");
             res.record(
                     responsive720pOk,
                     "1:1 Starsector 720p (1280x720) Responsive UI Viewport & Modal Expansion Verification",
@@ -2272,7 +2279,10 @@ public class StarsectorUISimulator {
                 "SET_OTC_AUTH:COMMAND_BY_DIRECTION",
                 "OPEN_DIV:div_1",
                 "TOGGLE_DD:DIV_ARCH_DD",
-                "TOGGLE_DD:DIV_OPEN_MIS_DD",
+                "TOGGLE_DD:DIV_OPEN_DD",
+                "TOGGLE_DD:DIV_MAIN_DD",
+                "TOGGLE_DIV_TUNING_OPTIONS",
+                "TOGGLE_DIV_TUNING_OPTIONS",
                 "TOGGLE_DIV_RAMMING_OPTIONS",
                 "TOGGLE_DIV_CARRIER_OPTIONS",
                 "TOGGLE_DD:DIV_SC_OPEN_DD",
@@ -3259,5 +3269,682 @@ public class StarsectorUISimulator {
             simulatedScreenWidth = 1920f;
             simulatedScreenHeight = 1080f;
         }
+    }
+
+    private static boolean simulateOnboardingCodexAndConfigureClarity1To1() throws Throwable {
+        Boolean prevIntroOverride = divisionai.DivisionAISharedData.testFleetIntroCompletedOverride;
+        com.fs.starfarer.api.impl.codex.CodexEntryPlugin prevRoot = com.fs.starfarer.api.impl.codex.CodexDataV2.ROOT;
+        Map<String, com.fs.starfarer.api.impl.codex.CodexEntryPlugin> prevEntries =
+                new LinkedHashMap<>(com.fs.starfarer.api.impl.codex.CodexDataV2.ENTRIES);
+        boolean prevWithMechanics = com.fs.starfarer.api.impl.codex.CodexDataV2.WITH_GAME_MECHANICS_CAT;
+        try {
+            // 1. Easier-to-Understand Mission Filtering & Archetype-Prioritized Ordering
+            List<PermanentDivisionManager.DivisionMissionType> nonCarrierOpts =
+                    PermanentDivisionManager.DivisionMissionType.getOptionsForDivisionType(false);
+            List<PermanentDivisionManager.DivisionMissionType> carrierOpts =
+                    PermanentDivisionManager.DivisionMissionType.getOptionsForDivisionType(true);
+            if (nonCarrierOpts.contains(PermanentDivisionManager.DivisionMissionType.CARRIER_STANDOFF)
+                    || !carrierOpts.contains(PermanentDivisionManager.DivisionMissionType.CARRIER_STANDOFF)) {
+                System.out.println("FAIL CARRIER_STANDOFF leaked into non-carrier hull mission list");
+                return false;
+            }
+            if (PermanentDivisionManager.DivisionMissionType.missionsForArchetype(DivisionArchetype.BATTLESHIP_DIVISION)[0]
+                            != PermanentDivisionManager.DivisionMissionType.CLOSE_ACTION
+                    || PermanentDivisionManager.DivisionMissionType.missionsForArchetype(DivisionArchetype.MISSILE_CRUISER_DIVISION)[0]
+                            != PermanentDivisionManager.DivisionMissionType.STANDOFF_ENGAGEMENT
+                    || PermanentDivisionManager.DivisionMissionType.missionsForArchetype(DivisionArchetype.STRIKE_CRUISER_DIVISION)[0]
+                            != PermanentDivisionManager.DivisionMissionType.TOT_ALPHA_STRIKE
+                    || PermanentDivisionManager.DivisionMissionType.missionsForArchetype(DivisionArchetype.FRIGATE_DIVISION)[0]
+                            != PermanentDivisionManager.DivisionMissionType.SCREEN) {
+                System.out.println("FAIL missionsForArchetype did not prioritize natural role missions first");
+                return false;
+            }
+
+            // 2. Codex Generation (Vanilla Spacer's Manual path + LunaLib Mods path) & Custom Detail Rendering
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ENTRIES.clear();
+            com.fs.starfarer.api.impl.codex.CodexEntryV2 root =
+                    new com.fs.starfarer.api.impl.codex.CodexEntryV2("codex_root", "Codex", null);
+            com.fs.starfarer.api.impl.codex.CodexEntryV2 mechCat =
+                    new com.fs.starfarer.api.impl.codex.CodexEntryV2(
+                            com.fs.starfarer.api.impl.codex.CodexDataV2.CAT_GAME_MECHANICS, "Spacer's Manual", null);
+            root.addChild(mechCat);
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ENTRIES.put(mechCat.getId(), mechCat);
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ROOT = root;
+            com.fs.starfarer.api.impl.codex.CodexDataV2.WITH_GAME_MECHANICS_CAT = false;
+
+            divisionai.DivisionCodexSetup.onAboutToStartGeneratingCodex();
+            if (!com.fs.starfarer.api.impl.codex.CodexDataV2.WITH_GAME_MECHANICS_CAT) {
+                System.out.println("FAIL onAboutToStartGeneratingCodex did not enable WITH_GAME_MECHANICS_CAT");
+                return false;
+            }
+            divisionai.DivisionCodexSetup.onCodexDataGenerated();
+
+            com.fs.starfarer.api.impl.codex.CodexEntryPlugin divCat =
+                    com.fs.starfarer.api.impl.codex.CodexDataV2.getEntry(divisionai.DivisionCodexSetup.CAT_DIVISION_AI);
+            if (divCat == null || divCat.getParent() != mechCat
+                    || !"graphics/icons/icon_regular.png".equals(divCat.getIcon())) {
+                System.out.println("FAIL CAT_DIVISION_AI not attached under CAT_GAME_MECHANICS with icon_regular");
+                return false;
+            }
+
+            String[] expectedEntries = new String[]{
+                    divisionai.DivisionCodexSetup.ENTRY_OVERVIEW,
+                    divisionai.DivisionCodexSetup.ENTRY_OTC,
+                    divisionai.DivisionCodexSetup.ENTRY_ORGANIZATION,
+                    divisionai.DivisionCodexSetup.ENTRY_MISSIONS,
+                    divisionai.DivisionCodexSetup.ENTRY_FORMATIONS,
+                    divisionai.DivisionCodexSetup.ENTRY_WARROOM
+            };
+            for (String entryId : expectedEntries) {
+                com.fs.starfarer.api.impl.codex.CodexEntryPlugin entry =
+                        com.fs.starfarer.api.impl.codex.CodexDataV2.getEntry(entryId);
+                if (entry == null || entry.getParent() != divCat || !entry.hasDetail()
+                        || !"graphics/icons/icon_regular.png".equals(entry.getIcon())) {
+                    System.out.println("FAIL Codex entry missing, invalid, or wrong icon: " + entryId);
+                    return false;
+                }
+                CustomPanelAPI detailHost = Global.getSettings().createCustom(720f, 680f, null);
+                entry.createCustomDetail(detailHost, null, null);
+                assertPositionTreeInvariantsAndRecompute(detailHost.getPosition());
+                List<LabelAPI> cLabels = new ArrayList<>();
+                List<ButtonAPI> cButtons = new ArrayList<>();
+                collectLabelsAndButtonsRecursive(detailHost, cLabels, cButtons);
+                if (cLabels.size() < 4) {
+                    System.out.println("FAIL Codex entry rendered too few labels: " + entryId + " (" + cLabels.size() + ")");
+                    return false;
+                }
+                StringBuilder joined = new StringBuilder();
+                for (LabelAPI lbl : cLabels) {
+                    if (!isPurePrintableAscii(lbl.getText())) {
+                        System.out.println("FAIL Non-ASCII text in Codex entry " + entryId + ": " + lbl.getText());
+                        return false;
+                    }
+                    joined.append(lbl.getText()).append('\n');
+                }
+                if (divisionai.DivisionCodexSetup.ENTRY_OVERVIEW.equals(entryId)) {
+                    String ov = joined.toString();
+                    for (String tier : new String[]{
+                            "1. Player",
+                            "2. The Officer in Tactical Command",
+                            "3. Division Leader",
+                            "4. Ship Captain",
+                            "5. Basic Ship AI"}) {
+                        if (!ov.contains(tier)) {
+                            System.out.println("FAIL Overview Codex entry missing C2 stack tier: " + tier);
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            // Test LunaLib "lunalib_mods" category attachment & idempotence
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ENTRIES.clear();
+            com.fs.starfarer.api.impl.codex.CodexEntryV2 root2 =
+                    new com.fs.starfarer.api.impl.codex.CodexEntryV2("codex_root", "Codex", null);
+            com.fs.starfarer.api.impl.codex.CodexEntryV2 lunaModsCat =
+                    new com.fs.starfarer.api.impl.codex.CodexEntryV2(
+                            divisionai.DivisionCodexSetup.LUNALIB_MODS_CAT_ID, "Mods", null);
+            root2.addChild(lunaModsCat);
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ENTRIES.put(lunaModsCat.getId(), lunaModsCat);
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ROOT = root2;
+            divisionai.DivisionCodexSetup.onCodexDataGenerated();
+            divisionai.DivisionCodexSetup.onCodexDataGenerated(); // Idempotent second call
+            com.fs.starfarer.api.impl.codex.CodexEntryPlugin divCatLuna =
+                    com.fs.starfarer.api.impl.codex.CodexDataV2.getEntry(divisionai.DivisionCodexSetup.CAT_DIVISION_AI);
+            if (divCatLuna == null || divCatLuna.getParent() != lunaModsCat || lunaModsCat.getChildren().size() != 1) {
+                System.out.println("FAIL LunaLib Mods category attachment or idempotence failed");
+                return false;
+            }
+
+            // Verify F2 contextual action/label -> Codex entry resolution & OPEN_CODEX button wiring
+            if (!divisionai.DivisionCodexSetup.ENTRY_OTC.equals(
+                            divisionai.DivisionCodexSetup.resolveCodexEntryForAction("SET_OTC_AUTH:COMMAND_BY_DIRECTION"))
+                    || !divisionai.DivisionCodexSetup.ENTRY_ORGANIZATION.equals(
+                            divisionai.DivisionCodexSetup.resolveCodexEntryForAction("SET_ARCH:CRUISER_DIVISION"))
+                    || !divisionai.DivisionCodexSetup.ENTRY_MISSIONS.equals(
+                            divisionai.DivisionCodexSetup.resolveCodexEntryForAction("DIV_MAIN_MIS:CLOSE_ACTION"))
+                    || !divisionai.DivisionCodexSetup.ENTRY_FORMATIONS.equals(
+                            divisionai.DivisionCodexSetup.resolveCodexEntryForAction("DIV_FORMATION:FORWARD_WEDGE"))
+                    || !divisionai.DivisionCodexSetup.ENTRY_WARROOM.equals(
+                            divisionai.DivisionCodexSetup.resolveCodexEntryForAction("WARROOM_TOGGLE_TIME"))
+                    || !divisionai.DivisionCodexSetup.ENTRY_FORMATIONS.equals(
+                            divisionai.DivisionCodexSetup.resolveCodexEntryForLabel("Spacing & C2 Tuning:"))) {
+                System.out.println("FAIL F2 Codex resolver returned unexpected entry IDs");
+                return false;
+            }
+
+            // Verify OPEN_CODEX buttons in FleetDoctrineDialog & DivisionEditorDialog
+            o000 codexHost = new o000();
+            codexHost.setSize(1920f, 1080f);
+            FleetDoctrineDialog docDlg = new FleetDoctrineDialog(codexHost);
+            docDlg.show();
+            divisionai.DivisionCodexSetup.lastOpenedCodexEntryForTests = null;
+            docDlg.buttonPressed("OPEN_CODEX:" + divisionai.DivisionCodexSetup.ENTRY_OTC);
+            docDlg.advance(0.1f);
+            if (!divisionai.DivisionCodexSetup.ENTRY_OTC.equals(divisionai.DivisionCodexSetup.lastOpenedCodexEntryForTests)) {
+                System.out.println("FAIL FleetDoctrineDialog OPEN_CODEX button did not trigger ENTRY_OTC");
+                return false;
+            }
+            docDlg.close();
+
+            DivisionEditorDialog edDlg = new DivisionEditorDialog(codexHost);
+            edDlg.show();
+            divisionai.DivisionCodexSetup.lastOpenedCodexEntryForTests = null;
+            edDlg.buttonPressed("OPEN_CODEX:" + divisionai.DivisionCodexSetup.ENTRY_ORGANIZATION);
+            edDlg.advance(0.1f);
+            if (!divisionai.DivisionCodexSetup.ENTRY_ORGANIZATION.equals(divisionai.DivisionCodexSetup.lastOpenedCodexEntryForTests)) {
+                System.out.println("FAIL DivisionEditorDialog OPEN_CODEX button did not trigger ENTRY_ORGANIZATION");
+                return false;
+            }
+            edDlg.buttonPressed("OPEN_DIV:div_1");
+            edDlg.advance(0.1f);
+            edDlg.buttonPressed("OPEN_CODEX:" + divisionai.DivisionCodexSetup.ENTRY_MISSIONS);
+            edDlg.advance(0.1f);
+            if (!divisionai.DivisionCodexSetup.ENTRY_MISSIONS.equals(divisionai.DivisionCodexSetup.lastOpenedCodexEntryForTests)) {
+                System.out.println("FAIL Configure Division OPEN_CODEX button did not trigger ENTRY_MISSIONS");
+                return false;
+            }
+            edDlg.close();
+
+            // 3. Soft Fleet Intro Tour (DivisionOnboardingOverlay) & Real-Game Conflict Guards
+            // Note: In real Starsector CampaignState, isShowingDialog() is TRUE whenever CoreUITabId.FLEET is open!
+            SectorAPI sector = Global.getSector();
+            com.fs.starfarer.api.campaign.CampaignUIAPI mockCampUi =
+                    (com.fs.starfarer.api.campaign.CampaignUIAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.campaign.CampaignUIAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.campaign.CampaignUIAPI.class},
+                            (p, m, a) -> {
+                                String n = m.getName();
+                                if ("getCurrentCoreTab".equals(n)) return com.fs.starfarer.api.campaign.CoreUITabId.FLEET;
+                                if ("isShowingDialog".equals(n)) return Boolean.TRUE;
+                                if ("isShowingMenu".equals(n)) return Boolean.FALSE;
+                                return null;
+                            });
+            java.lang.invoke.MethodHandle childrenHandle = java.lang.invoke.MethodHandles.lookup().findVirtual(
+                    o000.class, "getChildrenCopy", java.lang.invoke.MethodType.methodType(List.class));
+
+            o000 coreUI = new o000();
+            coreUI.setSize(1920f, 1080f);
+            // Simulate native full-screen TriPad frame sibling (com.fs.starfarer.ui.newui.X, non-CustomPanelAPI)
+            o000 nativeTripadFrame = new o000();
+            nativeTripadFrame.setSize(1920f, 1080f);
+            coreUI.add(nativeTripadFrame).inTL(0f, 0f);
+
+            o000 fleetTab = new o000();
+            fleetTab.setSize(1920f, 1080f);
+            coreUI.add(fleetTab).inTL(0f, 0f);
+
+            CustomPanelAPI btnBlock = Global.getSettings().createCustom(205f, 52f, null);
+            com.fs.starfarer.api.ui.TooltipMakerAPI btnTt = btnBlock.createUIElement(205f, 52f, false);
+            ButtonAPI docBtn = btnTt.addButton("Fleet Doctrine", "OPEN_FLEET_DOCTRINE", 174f, 24f, 0f);
+            docBtn.getPosition().inTL(27f, 0f);
+            ButtonAPI orgBtn = btnTt.addButton("Fleet Organization", "OPEN_DIVISION_EDITOR", 174f, 24f, 0f);
+            orgBtn.getPosition().inTL(27f, 28f);
+            btnBlock.addUIElement(btnTt).inTL(0f, 0f);
+            fleetTab.add((c) btnBlock).inTL(18f, 220f);
+            assertPositionTreeInvariantsAndRecompute(coreUI.getPosition());
+
+            // Test per-save sector memory directly (null test override)
+            divisionai.DivisionAISharedData.testFleetIntroCompletedOverride = null;
+            divisionai.DivisionAISharedData.resetFleetIntro();
+            if (divisionai.DivisionAISharedData.isFleetIntroCompleted()) {
+                System.out.println("FAIL Per-save intro flag should start false on fresh/existing save");
+                return false;
+            }
+
+            // Baseline: clean Fleet tab with ships + isShowingDialog()==true + native TriPad sibling -> auto-start allowed
+            if (!divisionai.DivisionOnboardingOverlay.canAutoStartOnFleetTab(
+                    sector, mockCampUi, coreUI, fleetTab, btnBlock, childrenHandle)) {
+                System.out.println("FAIL canAutoStartOnFleetTab should return true on real Fleet screen");
+                return false;
+            }
+
+            // Guard A: Already completed in this save's memory -> suppressed
+            divisionai.DivisionAISharedData.markFleetIntroCompleted();
+            if (!divisionai.DivisionAISharedData.isFleetIntroCompleted()
+                    || divisionai.DivisionOnboardingOverlay.canAutoStartOnFleetTab(
+                            sector, mockCampUi, coreUI, fleetTab, btnBlock, childrenHandle)) {
+                System.out.println("FAIL canAutoStartOnFleetTab did not suppress when intro completed in save memory");
+                return false;
+            }
+            divisionai.DivisionAISharedData.resetFleetIntro();
+
+            // Guard B: Base-game Galatia tutorial start ($tutorialInProgress / $tutorialRespawn) -> MUST STILL TRIGGER
+            // (CampaignTutorialScript only touches CHARACTER and INTEL/MAP tabs, never CoreUITabId.FLEET!)
+            if (sector != null && sector.getMemoryWithoutUpdate() != null) {
+                sector.getMemoryWithoutUpdate().set("$tutorialInProgress", Boolean.TRUE);
+                sector.getMemoryWithoutUpdate().set("$tutorialRespawn", Boolean.TRUE);
+                boolean allowedInGalatiaStart = divisionai.DivisionOnboardingOverlay.canAutoStartOnFleetTab(
+                        sector, mockCampUi, coreUI, fleetTab, btnBlock, childrenHandle);
+                sector.getMemoryWithoutUpdate().unset("$tutorialInProgress");
+                sector.getMemoryWithoutUpdate().unset("$tutorialRespawn");
+                if (!allowedInGalatiaStart) {
+                    System.out.println("FAIL Fleet intro tour was wrongly suppressed on a Galatia tutorial start");
+                    return false;
+                }
+            }
+
+            // Guard C: Another mod CustomPanelAPI modal mounted over coreUI -> suppressed
+            CustomPanelAPI otherModal = Global.getSettings().createCustom(900f, 600f, null);
+            coreUI.add((c) otherModal).inTL(510f, 240f);
+            assertPositionTreeInvariantsAndRecompute(coreUI.getPosition());
+            boolean blockedByModal = !divisionai.DivisionOnboardingOverlay.canAutoStartOnFleetTab(
+                    sector, mockCampUi, coreUI, fleetTab, btnBlock, childrenHandle);
+            coreUI.removeComponent((c) otherModal);
+            if (!blockedByModal) {
+                System.out.println("FAIL Modal conflict guard did not suppress Fleet intro tour");
+                return false;
+            }
+
+            // Walk through all 4 steps on 1080p AND crowded 720p viewports
+            for (int vpIdx = 0; vpIdx < 2; vpIdx++) {
+                float sw = (vpIdx == 0) ? 1920f : 1280f;
+                float sh = (vpIdx == 0) ? 1080f : 720f;
+                simulatedScreenWidth = sw;
+                simulatedScreenHeight = sh;
+                coreUI.setSize(sw, sh);
+                fleetTab.setSize(sw, sh);
+                // On 720p test crowded bottom-left sidebar position (near bottom edge)
+                btnBlock.getPosition().inTL(18f, vpIdx == 0 ? 220f : (sh - 70f));
+                assertPositionTreeInvariantsAndRecompute(coreUI.getPosition());
+
+                divisionai.DivisionAISharedData.testFleetIntroCompletedOverride = Boolean.FALSE;
+                divisionai.DivisionOnboardingOverlay tour =
+                        new divisionai.DivisionOnboardingOverlay(coreUI, btnBlock, docBtn, orgBtn);
+                tour.show();
+
+                String[] actions = new String[]{
+                        null,
+                        "TOUR_NEXT",
+                        "TOUR_NEXT",
+                        "TOUR_PREV",
+                        "TOUR_NEXT",
+                        "TOUR_NEXT",
+                        "TOUR_NEXT",
+                        "TOUR_NEXT",
+                        "TOUR_NEXT",
+                        "TOUR_NEXT"
+                };
+                int[] expectedStep = new int[]{0, 1, 2, 1, 2, 3, 4, 5, 6, 7};
+                for (int i = 0; i < actions.length; i++) {
+                    if (actions[i] != null) {
+                        tour.buttonPressed(actions[i]);
+                        tour.advance(0.1f);
+                    }
+                    if (tour.getStepIndex() != expectedStep[i] || tour.isClosed()) {
+                        System.out.println("FAIL Tour step mismatch at i=" + i + ": got " + tour.getStepIndex());
+                        return false;
+                    }
+                    assertPositionTreeInvariantsAndRecompute(coreUI.getPosition());
+                    CustomPanelAPI card = tour.getRootCardPanel();
+                    PositionAPI cp = card.getPosition();
+                    PositionAPI bp = btnBlock.getPosition();
+                    if (cp.getX() < 0f || cp.getY() < 0f
+                            || (cp.getX() + cp.getWidth()) > sw + 1f
+                            || (cp.getY() + cp.getHeight()) > sh + 1f) {
+                        System.out.println("FAIL Tour card out of viewport bounds on " + sw + "x" + sh);
+                        return false;
+                    }
+                    boolean overlapX = cp.getX() < (bp.getX() + bp.getWidth() - 1f)
+                            && (cp.getX() + cp.getWidth() - 1f) > bp.getX();
+                    boolean overlapY = cp.getY() < (bp.getY() + bp.getHeight() - 1f)
+                            && (cp.getY() + cp.getHeight() - 1f) > bp.getY();
+                    if (overlapX && overlapY) {
+                        System.out.println("FAIL Tour card overlapped Fleet sidebar buttons on step " + expectedStep[i]);
+                        return false;
+                    }
+                    List<LabelAPI> tLabels = new ArrayList<>();
+                    List<ButtonAPI> tBtns = new ArrayList<>();
+                    collectLabelsAndButtonsRecursive(card, tLabels, tBtns);
+                    for (LabelAPI tl : tLabels) {
+                        if (!isPurePrintableAscii(tl.getText())) {
+                            System.out.println("FAIL Non-ASCII text in Tour card: " + tl.getText());
+                            return false;
+                        }
+                    }
+                }
+
+                // Finish on step 4 -> closes cleanly & persists completion
+                tour.buttonPressed("TOUR_NEXT");
+                tour.advance(0.1f);
+                if (!tour.isClosed() || !divisionai.DivisionAISharedData.isFleetIntroCompleted()) {
+                    System.out.println("FAIL Finishing tour did not close overlay and mark intro completed");
+                    return false;
+                }
+            }
+
+            // Test full cross-screen guided tutorial with live TourNavigator (Fleet Doctrine 1a/1b -> Fleet Organization 2 + Auto-Assign)
+            divisionai.DivisionAISharedData.resetFleetIntro();
+            divisionai.PermanentDivisionManager.clearAllDivisions();
+            final divisionai.FleetDoctrineDialog[] liveDocHolder = new divisionai.FleetDoctrineDialog[1];
+            final divisionai.DivisionEditorDialog[] liveOrgHolder = new divisionai.DivisionEditorDialog[1];
+            divisionai.DivisionOnboardingOverlay.TourNavigator simNav = new divisionai.DivisionOnboardingOverlay.TourNavigator() {
+                @Override
+                public void openFleetDoctrine() {
+                    closeFleetOrganization();
+                    if (liveDocHolder[0] == null || liveDocHolder[0].isClosed()) {
+                        liveDocHolder[0] = new divisionai.FleetDoctrineDialog(coreUI);
+                        liveDocHolder[0].show();
+                    }
+                }
+
+                @Override
+                public void closeFleetDoctrine() {
+                    if (liveDocHolder[0] != null && !liveDocHolder[0].isClosed()) {
+                        liveDocHolder[0].close();
+                    }
+                    liveDocHolder[0] = null;
+                }
+
+                @Override
+                public divisionai.FleetDoctrineDialog getActiveDoctrineDialog() {
+                    return liveDocHolder[0];
+                }
+
+                @Override
+                public void openFleetOrganization() {
+                    closeFleetDoctrine();
+                    if (liveOrgHolder[0] == null || liveOrgHolder[0].isClosed()) {
+                        liveOrgHolder[0] = new divisionai.DivisionEditorDialog(coreUI);
+                        liveOrgHolder[0].show();
+                    }
+                }
+
+                @Override
+                public void closeFleetOrganization() {
+                    if (liveOrgHolder[0] != null && !liveOrgHolder[0].isClosed()) {
+                        liveOrgHolder[0].close();
+                    }
+                    liveOrgHolder[0] = null;
+                }
+
+                @Override
+                public divisionai.DivisionEditorDialog getActiveOrganizationDialog() {
+                    return liveOrgHolder[0];
+                }
+            };
+
+            divisionai.DivisionOnboardingOverlay guidedTour =
+                    new divisionai.DivisionOnboardingOverlay(coreUI, btnBlock, docBtn, orgBtn, simNav);
+            guidedTour.show();
+            List<LabelAPI> step0Labels = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(guidedTour.getRootCardPanel(), step0Labels, new ArrayList<>());
+            boolean sawWelcomeModTitle = false;
+            for (LabelAPI l : step0Labels) {
+                if (l.getText() != null
+                        && l.getText().contains("Welcome to Divisions: Command and Control, Commander!")
+                        && !l.getText().contains("plain language")) {
+                    sawWelcomeModTitle = true;
+                }
+            }
+            if (!sawWelcomeModTitle) {
+                System.out.println("FAIL Step 0 copy missing 'Welcome to Divisions: Command and Control!'");
+                return false;
+            }
+
+            // Step 0 -> Open Doctrine -> Step 1 (Command Scheme: broad level + Domain Sector-standard + no change needed)
+            guidedTour.buttonPressed("TOUR_NEXT");
+            guidedTour.advance(0.1f);
+            if (guidedTour.getStepIndex() != divisionai.DivisionOnboardingOverlay.STEP_DOCTRINE_COMMAND
+                    || liveDocHolder[0] == null || liveDocHolder[0].isClosed()
+                    || !"TAB:OTC_COMMAND".equals(liveDocHolder[0].getActiveTabCommand())) {
+                System.out.println("FAIL Guided tour did not open FleetDoctrineDialog on Command Scheme");
+                return false;
+            }
+            List<LabelAPI> step1aLabels = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(guidedTour.getRootCardPanel(), step1aLabels, new ArrayList<>());
+            boolean sawDomainStandard = false;
+            for (LabelAPI l : step1aLabels) {
+                if (l.getText() != null
+                        && l.getText().contains("how your fleet acts in battle at a broad level")
+                        && l.getText().contains("Domain")
+                        && l.getText().contains("do not need to change anything")) {
+                    sawDomainStandard = true;
+                }
+            }
+            if (!sawDomainStandard) {
+                System.out.println("FAIL Step 1 copy missing broad-level / Domain / no-change reassurance");
+                return false;
+            }
+
+            // Step 1 -> Division Defaults (TAB:MODIFIERS)
+            guidedTour.buttonPressed("TOUR_NEXT");
+            guidedTour.advance(0.1f);
+            if (guidedTour.getStepIndex() != divisionai.DivisionOnboardingOverlay.STEP_DOCTRINE_DEFAULTS
+                    || !"TAB:MODIFIERS".equals(liveDocHolder[0].getActiveTabCommand())) {
+                System.out.println("FAIL Guided tour did not switch FleetDoctrineDialog to Division Defaults");
+                return false;
+            }
+            List<LabelAPI> step1bLabels = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(guidedTour.getRootCardPanel(), step1bLabels, new ArrayList<>());
+            boolean sawInherited = false;
+            for (LabelAPI l : step1bLabels) {
+                if (l.getText() != null && l.getText().contains("Division Defaults")
+                        && l.getText().contains("inherited by your active divisions")
+                        && l.getText().contains("Fleet Organization")) {
+                    sawInherited = true;
+                }
+            }
+            if (!sawInherited) {
+                System.out.println("FAIL Division Defaults step missing active-division inheritance explanation");
+                return false;
+            }
+
+            // Step 2 -> Division Creation (TAB:AUTO_ASSIGN) -> Hull Limits (TAB:HULLS) -> Nomenclature (TAB:NAMING)
+            String[] expectedTabs = new String[]{"TAB:AUTO_ASSIGN", "TAB:HULLS", "TAB:NAMING"};
+            int[] expectedDocSteps = new int[]{
+                    divisionai.DivisionOnboardingOverlay.STEP_DOCTRINE_CREATION,
+                    divisionai.DivisionOnboardingOverlay.STEP_DOCTRINE_HULLS,
+                    divisionai.DivisionOnboardingOverlay.STEP_DOCTRINE_NAMING
+            };
+            for (int ti = 0; ti < expectedTabs.length; ti++) {
+                guidedTour.buttonPressed("TOUR_NEXT");
+                guidedTour.advance(0.1f);
+                if (guidedTour.getStepIndex() != expectedDocSteps[ti]
+                        || !expectedTabs[ti].equals(liveDocHolder[0].getActiveTabCommand())) {
+                    System.out.println("FAIL Guided tour did not advance to Doctrine tab " + expectedTabs[ti]);
+                    return false;
+                }
+            }
+
+            // Step 5 -> Fleet Organization -> closes Doctrine, opens DivisionEditorDialog at Step 6 (Overview)
+            guidedTour.buttonPressed("TOUR_NEXT");
+            guidedTour.advance(0.1f);
+            if (guidedTour.getStepIndex() != divisionai.DivisionOnboardingOverlay.STEP_ORG_OVERVIEW
+                    || liveDocHolder[0] != null
+                    || liveOrgHolder[0] == null || liveOrgHolder[0].isClosed()) {
+                System.out.println("FAIL Guided tour did not transition from FleetDoctrineDialog to DivisionEditorDialog");
+                return false;
+            }
+            List<LabelAPI> step2Labels = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(guidedTour.getRootCardPanel(), step2Labels, new ArrayList<>());
+            boolean sawAutoAssignAndTune = false;
+            for (LabelAPI l : step2Labels) {
+                if (l.getText() != null && l.getText().contains("Auto-Assign")
+                        && l.getText().contains("mainly inherit their values from Division Defaults")
+                        && l.getText().contains("tune them yourself")) {
+                    sawAutoAssignAndTune = true;
+                }
+            }
+            if (!sawAutoAssignAndTune) {
+                System.out.println("FAIL Fleet Organization step missing Auto-Assign / Division Defaults inheritance guidance");
+                return false;
+            }
+
+            // Simulate clicking the real Auto-Assign button on DivisionEditorDialog while tour is active
+            liveOrgHolder[0].buttonPressed("AUTO_ASSIGN");
+            liveOrgHolder[0].advance(0.1f);
+            guidedTour.advance(0.1f);
+            if (!guidedTour.isAutoAssignPressed()
+                    || !divisionai.PermanentDivisionManager.getUnassignedCombatMembers(
+                            sector.getPlayerFleet(),
+                            divisionai.PermanentDivisionManager.getPermanentDivisions()).isEmpty()) {
+                System.out.println("FAIL Clicking AUTO_ASSIGN during guided tour did not organize ships immediately");
+                return false;
+            }
+
+            // Step 6 -> Configure Division -> opens Configure Division subscreen at Step 7
+            guidedTour.buttonPressed("TOUR_NEXT");
+            guidedTour.advance(0.1f);
+            if (guidedTour.getStepIndex() != divisionai.DivisionOnboardingOverlay.STEP_ORG_CONFIGURE
+                    || !liveOrgHolder[0].isShowingConfigureDivision()
+                    || liveOrgHolder[0].getDivisionTypeDropdownButton() == null) {
+                System.out.println("FAIL Guided tour did not open Configure Division subscreen on Step 7");
+                return false;
+            }
+            List<LabelAPI> stepCfgLabels = new ArrayList<>();
+            collectLabelsAndButtonsRecursive(guidedTour.getRootCardPanel(), stepCfgLabels, new ArrayList<>());
+            boolean sawCfgInherit = false;
+            for (LabelAPI l : stepCfgLabels) {
+                if (l.getText() != null
+                        && l.getText().contains("mainly inherit their values from Division Defaults")
+                        && l.getText().contains("Default (Doctrine)")) {
+                    sawCfgInherit = true;
+                }
+            }
+            if (!sawCfgInherit) {
+                System.out.println("FAIL Configure Division step missing Division Defaults inheritance explanation");
+                return false;
+            }
+
+            // Finish tour -> marks per-save intro completed
+            guidedTour.buttonPressed("TOUR_NEXT");
+            guidedTour.advance(0.1f);
+            simNav.closeFleetOrganization();
+            if (!guidedTour.isClosed() || !divisionai.DivisionAISharedData.isFleetIntroCompleted()) {
+                System.out.println("FAIL Completing guided tour did not mark per-save completion");
+                return false;
+            }
+
+            // Verify Combat Freighters as Warships switch (ON vs OFF) in FleetDoctrineDialog & PermanentDivisionManager
+            com.fs.starfarer.api.fleet.FleetMemberAPI muleCf = createCustomMockMember(
+                    "sim_cf_mule", "Mule", com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER, false,
+                    "Combat Freighter", java.util.EnumSet.of(
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.FREIGHTER,
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.COMBAT));
+            com.fs.starfarer.api.fleet.FleetMemberAPI cerberusCf = createCustomMockMember(
+                    "sim_cf_cerberus", "Cerberus", com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE, true,
+                    "Combat Freighter", java.util.EnumSet.of(
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.CIVILIAN,
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.FREIGHTER,
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.COMBAT));
+            com.fs.starfarer.api.fleet.FleetMemberAPI tarsusPureFreighter = createCustomMockMember(
+                    "sim_pure_tarsus", "Tarsus", com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER, true,
+                    "Freighter", java.util.EnumSet.of(
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.CIVILIAN,
+                            com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.FREIGHTER));
+            if (!divisionai.ShipCapabilityProfile.isCombatFreighterHull(muleCf.getHullSpec())
+                    || !divisionai.ShipCapabilityProfile.isCombatFreighterHull(cerberusCf.getHullSpec())
+                    || divisionai.ShipCapabilityProfile.isCombatFreighterHull(tarsusPureFreighter.getHullSpec())) {
+                System.out.println("FAIL isCombatFreighterHull misclassified Mule / Cerberus / Tarsus");
+                return false;
+            }
+            divisionai.PermanentDivisionManager.updateCombatFreightersAsWarships(true);
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig docOn = divisionai.PermanentDivisionManager.getFleetDoctrine();
+            if (divisionai.PermanentDivisionManager.classifyFleetMemberArchetype(muleCf, docOn) != divisionai.DivisionModel.DivisionArchetype.DESTROYER_DIVISION
+                    || divisionai.PermanentDivisionManager.classifyFleetMemberArchetype(cerberusCf, docOn) != divisionai.DivisionModel.DivisionArchetype.FRIGATE_DIVISION
+                    || divisionai.PermanentDivisionManager.classifyFleetMemberArchetype(tarsusPureFreighter, docOn) != divisionai.DivisionModel.DivisionArchetype.SERVICE_GROUP) {
+                System.out.println("FAIL Combat Freighters as Warships ON did not route Mule/Cerberus to warship divisions while keeping Tarsus in Service Group");
+                return false;
+            }
+            divisionai.FleetDoctrineDialog cfDocDlg = new divisionai.FleetDoctrineDialog(coreUI);
+            cfDocDlg.show();
+            cfDocDlg.buttonPressed("TAB:AUTO_ASSIGN");
+            cfDocDlg.advance(0.1f);
+            cfDocDlg.buttonPressed("SET_COMBAT_FREIGHTERS_WARSHIPS:OFF");
+            cfDocDlg.advance(0.1f);
+            divisionai.PermanentDivisionManager.FleetDoctrineConfig docOff = divisionai.PermanentDivisionManager.getFleetDoctrine();
+            if (docOff.isCombatFreightersAsWarships()
+                    || divisionai.PermanentDivisionManager.classifyFleetMemberArchetype(muleCf, docOff) != divisionai.DivisionModel.DivisionArchetype.SERVICE_GROUP
+                    || divisionai.PermanentDivisionManager.classifyFleetMemberArchetype(cerberusCf, docOff) != divisionai.DivisionModel.DivisionArchetype.SERVICE_GROUP) {
+                cfDocDlg.close();
+                System.out.println("FAIL Combat Freighters as Warships OFF did not route Mule/Cerberus to Service Group");
+                return false;
+            }
+            cfDocDlg.buttonPressed("SET_COMBAT_FREIGHTERS_WARSHIPS:ON");
+            cfDocDlg.advance(0.1f);
+            cfDocDlg.close();
+            if (!divisionai.PermanentDivisionManager.getFleetDoctrine().isCombatFreightersAsWarships()) {
+                System.out.println("FAIL Toggling Combat Freighters as Warships back ON failed");
+                return false;
+            }
+
+            // Test resetFleetIntro + TOUR_OPEN_CODEX action
+            divisionai.DivisionAISharedData.resetFleetIntro();
+            if (divisionai.DivisionAISharedData.isFleetIntroCompleted()) {
+                System.out.println("FAIL resetFleetIntro did not clear completion flag");
+                return false;
+            }
+            divisionai.DivisionOnboardingOverlay codexTour =
+                    new divisionai.DivisionOnboardingOverlay(coreUI, btnBlock, docBtn, orgBtn);
+            codexTour.show();
+            divisionai.DivisionCodexSetup.lastOpenedCodexEntryForTests = null;
+            codexTour.buttonPressed("TOUR_OPEN_CODEX");
+            codexTour.advance(0.1f);
+            if (!codexTour.isClosed()
+                    || !divisionai.DivisionAISharedData.isFleetIntroCompleted()
+                    || !divisionai.DivisionCodexSetup.ENTRY_OVERVIEW.equals(
+                            divisionai.DivisionCodexSetup.lastOpenedCodexEntryForTests)) {
+                System.out.println("FAIL TOUR_OPEN_CODEX did not close tour, persist completion, and open ENTRY_OVERVIEW");
+                return false;
+            }
+
+            return true;
+        } finally {
+            simulatedScreenWidth = 1920f;
+            simulatedScreenHeight = 1080f;
+            divisionai.DivisionAISharedData.testFleetIntroCompletedOverride = prevIntroOverride;
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ROOT = prevRoot;
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ENTRIES.clear();
+            com.fs.starfarer.api.impl.codex.CodexDataV2.ENTRIES.putAll(prevEntries);
+            com.fs.starfarer.api.impl.codex.CodexDataV2.WITH_GAME_MECHANICS_CAT = prevWithMechanics;
+        }
+    }
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createCustomMockMember(
+            final String id,
+            final String hullName,
+            final com.fs.starfarer.api.combat.ShipAPI.HullSize hullSize,
+            final boolean isCivilian,
+            final String designation,
+            final java.util.EnumSet<com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints> hints) {
+        final com.fs.starfarer.api.combat.ShipHullSpecAPI spec =
+                (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.ShipHullSpecAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getHullSize".equals(n)) return hullSize;
+                            if ("getHullName".equals(n) || "getHullNameWithDashClass".equals(n)) return hullName;
+                            if ("getBaseHullId".equals(n) || "getHullId".equals(n)) return id;
+                            if ("getDesignation".equals(n)) return designation;
+                            if ("getHints".equals(n)) return hints;
+                            if ("getFighterBays".equals(n)) return 0;
+                            if ("isPhase".equals(n)) return Boolean.FALSE;
+                            if ("getAllWeaponSlotsCopy".equals(n)) return java.util.Collections.emptyList();
+                            if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                            if (m.getReturnType() == int.class) return 0;
+                            if (m.getReturnType() == float.class) return 0f;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.fleet.FleetMemberAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return id;
+                    if ("getShipName".equals(n)) return "ISS " + hullName;
+                    if ("getHullId".equals(n)) return id;
+                    if ("getHullSpec".equals(n)) return spec;
+                    if ("isCivilian".equals(n)) return Boolean.valueOf(isCivilian);
+                    if ("isFighterWing".equals(n) || "isStation".equals(n) || "isMothballed".equals(n)) return Boolean.FALSE;
+                    if ("isPhaseShip".equals(n) || "isCarrier".equals(n)) return Boolean.FALSE;
+                    if ("getNumFlightDecks".equals(n)) return 0;
+                    if ("getDeploymentPointsCost".equals(n)) return 8f;
+                    if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                    if (m.getReturnType() == int.class) return 0;
+                    if (m.getReturnType() == float.class) return 0f;
+                    return null;
+                });
     }
 }
