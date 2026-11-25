@@ -565,7 +565,7 @@ public class ShipCapabilityProfile {
     public static boolean isCombatFreighterHull(ShipHullSpecAPI hullSpec) {
         if (hullSpec == null) return false;
         String desg = hullSpec.getDesignation() != null
-                ? hullSpec.getDesignation().toLowerCase(java.util.Locale.ROOT)
+                ? hullSpec.getDesignation().toLowerCase(java.util.Locale.ROOT).trim()
                 : "";
         EnumSet<ShipTypeHints> hints = hullSpec.getHints() != null
                 ? hullSpec.getHints()
@@ -574,10 +574,69 @@ public class ShipCapabilityProfile {
                 || desg.contains("combat superfreighter")
                 || desg.contains("carrier freighter")
                 || desg.contains("modified freighter")
-                || desg.contains("modified superfreighter")) {
+                || desg.contains("modified superfreighter")
+                || desg.contains("converted freighter")
+                || desg.contains("converted superfreighter")
+                || desg.contains("armed freighter")
+                || desg.contains("armed superfreighter")
+                || desg.contains("assault freighter")
+                || desg.contains("missile freighter")
+                || desg.contains("bombardment freighter")
+                || desg.contains("bombardment superfreighter")
+                || desg.contains("mod-freighter")
+                || desg.contains("mod-superfreighter")
+                || desg.contains("combat tanker")
+                || desg.contains("modified tanker")
+                || desg.contains("converted tanker")
+                || desg.contains("armed tanker")
+                || desg.contains("combat liner")
+                || desg.contains("modified liner")
+                || desg.contains("converted liner")
+                || desg.contains("armed liner")) {
             return true;
         }
-        return hints.contains(ShipTypeHints.FREIGHTER) && hints.contains(ShipTypeHints.COMBAT);
+        if ((hints.contains(ShipTypeHints.FREIGHTER)
+                || hints.contains(ShipTypeHints.TANKER)
+                || hints.contains(ShipTypeHints.LINER))
+                && hints.contains(ShipTypeHints.COMBAT)) {
+            return true;
+        }
+        if (hints.contains(ShipTypeHints.FREIGHTER)
+                && hints.contains(ShipTypeHints.CARRIER)
+                && !hints.contains(ShipTypeHints.CIVILIAN)) {
+            return true;
+        }
+        // Catch armed civilian-grade conversions (e.g. vanilla Buffalo Mk.II, Venture, Prometheus Mk.II,
+        // Atlas Mk.II, Colossus Mk.II/III, and modded civgrade warship conversions) without matching
+        // pure civilian hulls, shuttles, drone tenders, salvage rigs, tugs, or child modules.
+        List<String> builtInMods = hullSpec.getBuiltInMods();
+        if (builtInMods != null && builtInMods.contains("civgrade")
+                && !hints.contains(ShipTypeHints.CIVILIAN)
+                && !hints.contains(ShipTypeHints.HIDE_IN_CODEX)
+                && !desg.isEmpty()
+                && !isPureCivilianUtilityDesignation(desg)) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isPureCivilianUtilityDesignation(String desgLower) {
+        if (desgLower == null || desgLower.isEmpty()) return true;
+        if (desgLower.contains("module")) return true;
+        String[] pureCivTerms = {
+                "shuttle", "drone tender", "salvage rig", "tug",
+                "freighter", "heavy freighter", "light freighter", "medium freighter", "superfreighter",
+                "tanker", "supertanker", "light tanker",
+                "liner", "starliner", "civilian transport", "transport", "personnel transport",
+                "phase tender", "exploration vessel", "survey ship", "mining", "prospector", "rig"
+        };
+        for (int i = 0; i < pureCivTerms.length; i++) {
+            String term = pureCivTerms[i];
+            if (desgLower.equals(term) || desgLower.endsWith(" " + term)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

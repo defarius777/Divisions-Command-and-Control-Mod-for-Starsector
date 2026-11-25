@@ -4224,8 +4224,177 @@ public class PermanentDivisionManager {
 
     public static void updateCombatFreightersAsWarships(boolean enabled) {
         FleetDoctrineConfig cfg = getFleetDoctrine();
+        boolean changed = (cfg.isCombatFreightersAsWarships() != enabled);
         cfg.setCombatFreightersAsWarships(enabled);
         saveFleetDoctrine(cfg);
+        if (changed) {
+            reconcilePlayerDivisionsForCombatFreighterSwitch(enabled, cfg);
+        }
+    }
+
+    /**
+     * Surgically updates existing player fleet divisions when the "Combat Freighters as Warships"
+     * switch is toggled so existing divisions reflect the new setting immediately without wiping
+     * custom names/doctrines on regular warship divisions or disturbing unrelated unassigned hulls.
+     */
+    private static void reconcilePlayerDivisionsForCombatFreighterSwitch(
+            boolean asWarships,
+            FleetDoctrineConfig cfg) {
+        SectorAPI sector = Global.getSector();
+        if (sector == null || sector.getPlayerFleet() == null || sector.getPlayerFleet().getFleetData() == null) {
+            return;
+        }
+        CampaignFleetAPI fleet = sector.getPlayerFleet();
+        Map<String, Object> pdata = sector.getPersistentData();
+        if (pdata == null || !pdata.containsKey(PERSISTENT_DIVISIONS_KEY)) {
+            return;
+        }
+        List<PermanentDivisionSpec> specs = loadSpecsFromPersistentData(pdata);
+        if (specs.isEmpty()) {
+            return;
+        }
+        Map<String, FleetMemberAPI> byId = mapFleetMembersById(fleet);
+        List<FleetMemberAPI> movedCombatFreighters = new ArrayList<>();
+        boolean mutated = false;
+
+        if (!asWarships) {
+            // Pull combat freighters out of warship divisions and route them into Service Group(s).
+            java.util.Iterator<PermanentDivisionSpec> it = specs.iterator();
+            while (it.hasNext()) {
+                PermanentDivisionSpec spec = it.next();
+                if (spec == null || spec.archetype == DivisionArchetype.SERVICE_GROUP) continue;
+                boolean removedFromThis = false;
+                java.util.Iterator<String> mIt = spec.memberIds.iterator();
+                while (mIt.hasNext()) {
+                    String mid = mIt.next();
+                    FleetMemberAPI m = byId.get(mid);
+                    if (m != null && ShipCapabilityProfile.isCombatFreighterHull(m.getHullSpec())) {
+                        mIt.remove();
+                        movedCombatFreighters.add(m);
+                        removedFromThis = true;
+                        mutated = true;
+                    }
+                }
+                if (removedFromThis) {
+                    if (spec.memberIds.isEmpty()) {
+                        it.remove();
+                    } else {
+                        ensureValidFlagship(spec, fleet);
+                    }
+                }
+            }
+            if (!movedCombatFreighters.isEmpty()) {
+                int serviceCap = Math.min(MAX_DIVISION_SIZE, Math.max(1, cfg.getMax(DoctrineHullCategory.FREIGHTER)));
+                List<FleetMemberAPI> remaining = new ArrayList<>(movedCombatFreighters);
+                for (PermanentDivisionSpec spec : specs) {
+                    if (remaining.isEmpty()) break;
+                    if (spec.archetype != DivisionArchetype.SERVICE_GROUP) continue;
+                    while (!remaining.isEmpty() && spec.memberIds.size() < serviceCap) {
+                        FleetMemberAPI add = remaining.remove(0);
+                        if (!spec.memberIds.contains(add.getId())) {
+                            spec.memberIds.add(add.getId());
+                            mutated = true;
+                        }
+                    }
+                    ensureValidFlagship(spec, fleet);
+                }
+                if (!remaining.isEmpty()) {
+                    List<List<FleetMemberAPI>> chunks = distributePoolWithCommandersFirst(remaining, serviceCap);
+                    for (List<FleetMemberAPI> chunk : chunks) {
+                        if (chunk.isEmpty()) continue;
+                        DivisionArchetype targetArch = classifyFleetMemberArchetype(chunk.get(0), cfg);
+                        if (targetArch == null) continue;
+                        PermanentDivisionSpec newSvc = createNewDivisionInternal(specs, pdata, targetArch);
+                        for (FleetMemberAPI cm : chunk) {
+                            newSvc.memberIds.add(cm.getId());
+                        }
+                        ensureValidFlagship(newSvc, fleet);
+                        mutated = true;
+                    }
+                }
+            }
+        } else {
+            // Pull combat freighters out of Service Group(s) and route ONLY those freed combat freighters
+            // into same-hull-first warship divisions (leaving unrelated unassigned hulls untouched).
+            java.util.Iterator<PermanentDivisionSpec> it = specs.iterator();
+            while (it.hasNext()) {
+                PermanentDivisionSpec spec = it.next();
+                if (spec == null || spec.archetype != DivisionArchetype.SERVICE_GROUP) continue;
+                boolean removedFromThis = false;
+                java.util.Iterator<String> mIt = spec.memberIds.iterator();
+                while (mIt.hasNext()) {
+                    String mid = mIt.next();
+                    FleetMemberAPI m = byId.get(mid);
+                    if (m != null && ShipCapabilityProfile.isCombatFreighterHull(m.getHullSpec())) {
+                        mIt.remove();
+                        movedCombatFreighters.add(m);
+                        removedFromThis = true;
+                        mutated = true;
+                    }
+                }
+                if (removedFromThis) {
+                    if (spec.memberIds.isEmpty()) {
+                        it.remove();
+                    } else {
+                        ensureValidFlagship(spec, fleet);
+                    }
+                }
+            }
+            if (!movedCombatFreighters.isEmpty()) {
+                Map<DivisionArchetype, List<FleetMemberAPI>> byArch = new LinkedHashMap<>();
+                for (FleetMemberAPI m : movedCombatFreighters) {
+                    DivisionArchetype arch = classifyFleetMemberArchetype(m, cfg);
+                    if (arch == null || arch == DivisionArchetype.SERVICE_GROUP) continue;
+                    DoctrineHullCategory cat = classifyHullCategory(m, cfg);
+                    int cap = Math.min(MAX_DIVISION_SIZE, cfg.getMax(cat));
+                    if (cap <= 0) continue;
+                    // First try topping up an existing division of the same archetype that shares hull family.
+                    String fam = resolveCanonicalHullFamilyKey(m);
+                    PermanentDivisionSpec bestExisting = null;
+                    for (PermanentDivisionSpec spec : specs) {
+                        if (spec.archetype != arch || spec.memberIds.size() >= cap) continue;
+                        if (countHullFamilyInDivision(spec, fam, byId) > 0) {
+                            bestExisting = spec;
+                            break;
+                        }
+                    }
+                    if (bestExisting != null) {
+                        bestExisting.memberIds.add(m.getId());
+                        ensureValidFlagship(bestExisting, fleet);
+                        mutated = true;
+                    } else {
+                        List<FleetMemberAPI> pool = byArch.get(arch);
+                        if (pool == null) {
+                            pool = new ArrayList<>();
+                            byArch.put(arch, pool);
+                        }
+                        pool.add(m);
+                    }
+                }
+                for (Map.Entry<DivisionArchetype, List<FleetMemberAPI>> e : byArch.entrySet()) {
+                    DivisionArchetype arch = e.getKey();
+                    List<FleetMemberAPI> pool = e.getValue();
+                    if (pool == null || pool.isEmpty()) continue;
+                    DoctrineHullCategory repCat = classifyHullCategory(pool.get(0), cfg);
+                    int cap = Math.min(MAX_DIVISION_SIZE, Math.max(1, cfg.getMax(repCat)));
+                    List<List<FleetMemberAPI>> chunks = distributePoolWithCommandersFirst(pool, cap);
+                    for (List<FleetMemberAPI> chunk : chunks) {
+                        if (chunk.isEmpty()) continue;
+                        PermanentDivisionSpec newDiv = createNewDivisionInternal(specs, pdata, arch);
+                        for (FleetMemberAPI cm : chunk) {
+                            newDiv.memberIds.add(cm.getId());
+                        }
+                        ensureValidFlagship(newDiv, fleet);
+                        mutated = true;
+                    }
+                }
+            }
+        }
+
+        if (mutated) {
+            sortDivisionsByWeightClassAndRole(specs, fleet);
+            saveSpecsToPersistentData(pdata, specs);
+        }
     }
 
     public static void resetFleetDoctrineToDefaults() {
@@ -4349,6 +4518,96 @@ public class PermanentDivisionManager {
 
     /** Campaign days a missing member is remembered before it is considered permanently gone. */
     static final float DORMANT_MEMBER_EXPIRY_DAYS = 90f;
+
+    static String resolveCanonicalHullFamilyKey(ShipHullSpecAPI hs, String fallbackHullId) {
+        String candidate = null;
+        if (hs != null) {
+            try {
+                candidate = hs.getRestoredToHullId();
+            } catch (Throwable ignored) {
+            }
+            if (candidate == null || candidate.isEmpty()) {
+                try {
+                    candidate = hs.getDParentHullId();
+                } catch (Throwable ignored) {
+                }
+            }
+            if (candidate == null || candidate.isEmpty()) {
+                try {
+                    candidate = hs.getBaseHullId();
+                } catch (Throwable ignored) {
+                }
+            }
+            if (candidate == null || candidate.isEmpty()) {
+                try {
+                    candidate = hs.getHullId();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        if (candidate == null || candidate.isEmpty()) {
+            candidate = fallbackHullId;
+        }
+        if (candidate == null || candidate.isEmpty()) {
+            return "unknown_hull";
+        }
+        String norm = candidate.trim().toLowerCase(java.util.Locale.ROOT);
+        if (norm.endsWith("_default_d")) {
+            norm = norm.substring(0, norm.length() - "_default_d".length());
+        }
+        return norm.isEmpty() ? "unknown_hull" : norm;
+    }
+
+    static String resolveCanonicalHullFamilyKey(FleetMemberAPI m) {
+        if (m == null) return "unknown_hull";
+        String fb = null;
+        try {
+            fb = m.getHullId();
+        } catch (Throwable ignored) {
+        }
+        ShipHullSpecAPI hs = null;
+        try {
+            hs = m.getHullSpec();
+        } catch (Throwable ignored) {
+        }
+        return resolveCanonicalHullFamilyKey(hs, fb);
+    }
+
+    static String resolveExactHullKey(ShipHullSpecAPI hs, String fallbackHullId) {
+        String candidate = null;
+        if (hs != null) {
+            try {
+                candidate = hs.getHullId();
+            } catch (Throwable ignored) {
+            }
+        }
+        if (candidate == null || candidate.isEmpty()) {
+            candidate = fallbackHullId;
+        }
+        if (candidate == null || candidate.isEmpty()) {
+            return resolveCanonicalHullFamilyKey(hs, fallbackHullId);
+        }
+        String norm = candidate.trim().toLowerCase(java.util.Locale.ROOT);
+        if (norm.endsWith("_default_d")) {
+            norm = norm.substring(0, norm.length() - "_default_d".length());
+        }
+        return norm.isEmpty() ? "unknown_hull" : norm;
+    }
+
+    static String resolveExactHullKey(FleetMemberAPI m) {
+        if (m == null) return "unknown_hull";
+        String fb = null;
+        try {
+            fb = m.getHullId();
+        } catch (Throwable ignored) {
+        }
+        ShipHullSpecAPI hs = null;
+        try {
+            hs = m.getHullSpec();
+        } catch (Throwable ignored) {
+        }
+        return resolveExactHullKey(hs, fb);
+    }
 
     static String memberFingerprint(FleetMemberAPI m) {
         if (m == null) return null;
@@ -5677,13 +5936,18 @@ public class PermanentDivisionManager {
         Collections.sort(unassigned, new Comparator<FleetMemberAPI>() {
             @Override
             public int compare(FleetMemberAPI a, FleetMemberAPI b) {
-                return Float.compare(b.getDeploymentPointsCost(), a.getDeploymentPointsCost());
+                int dpCmp = Float.compare(b.getDeploymentPointsCost(), a.getDeploymentPointsCost());
+                if (dpCmp != 0) return dpCmp;
+                int famCmp = resolveCanonicalHullFamilyKey(a).compareTo(resolveCanonicalHullFamilyKey(b));
+                if (famCmp != 0) return famCmp;
+                return resolveExactHullKey(a).compareTo(resolveExactHullKey(b));
             }
         });
 
         Map<String, FleetMemberAPI> fleetById = mapFleetMembersById(fleet);
 
-        // Pass 1: Satisfy unmet Fleet Doctrine minimum hull counts in existing divisions that have space (< 10)
+        // Pass 1: Satisfy unmet Fleet Doctrine minimum hull counts in existing divisions that have space (< 10),
+        // preferring hulls already represented in that division (or cohesive same-hull clusters).
         for (PermanentDivisionSpec spec : specs) {
             if (spec.memberIds.size() >= MAX_DIVISION_SIZE) continue;
             for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
@@ -5691,7 +5955,8 @@ public class PermanentDivisionManager {
                 if (minReq <= 0) continue;
                 int currentCatCount = countCategoryInDivision(spec, cat, fleetById);
                 while (currentCatCount < minReq && spec.memberIds.size() < MAX_DIVISION_SIZE) {
-                    FleetMemberAPI match = popFirstUnassignedOfCategory(unassigned, cat);
+                    int stillNeeded = Math.min(minReq - currentCatCount, MAX_DIVISION_SIZE - spec.memberIds.size());
+                    FleetMemberAPI match = popBestHullMatchOfCategory(unassigned, cat, spec, fleetById, stillNeeded);
                     if (match == null) break;
                     spec.memberIds.add(match.getId());
                     ensureValidFlagship(spec, fleet);
@@ -5701,46 +5966,121 @@ public class PermanentDivisionManager {
         }
 
         // Pass 2: Assign remaining unassigned ships into existing divisions that have space
-        // (up to doctrine.getMax(cat) and strictly < MAX_DIVISION_SIZE = 10)
-        List<FleetMemberAPI> afterExistingPass = new ArrayList<>();
-        for (FleetMemberAPI m : unassigned) {
-            DoctrineHullCategory cat = classifyHullCategory(m);
-            DivisionArchetype desiredArch = classifyFleetMemberArchetype(m, doctrine);
-            if (desiredArch == null) continue;
-            int catMax = doctrine.getMax(cat);
-
-            PermanentDivisionSpec bestMatch = null;
-            if (catMax > 0) {
-                // First prefer an existing division of the matching archetype
-                for (PermanentDivisionSpec spec : specs) {
-                    if (spec.memberIds.size() >= MAX_DIVISION_SIZE) continue;
-                    if (spec.archetype == desiredArch
-                            && countCategoryInDivision(spec, cat, fleetById) < catMax) {
-                        bestMatch = spec;
-                        break;
-                    }
+        // (up to doctrine.getMax(cat) and strictly < MAX_DIVISION_SIZE = 10), prioritizing same-hull affinity
+        // and keeping multi-ship same-hull clusters intact instead of splitting them across unrelated divisions.
+        if (!unassigned.isEmpty() && !specs.isEmpty()) {
+            // Group unassigned by (archetype, hullCategory, canonicalHullFamily)
+            Map<String, List<FleetMemberAPI>> hullClusters = new LinkedHashMap<>();
+            for (FleetMemberAPI m : unassigned) {
+                DoctrineHullCategory cat = classifyHullCategory(m, doctrine);
+                DivisionArchetype desiredArch = classifyFleetMemberArchetype(m, doctrine);
+                if (desiredArch == null) continue;
+                String key = desiredArch.name() + "|" + cat.name() + "|" + resolveCanonicalHullFamilyKey(m);
+                List<FleetMemberAPI> grp = hullClusters.get(key);
+                if (grp == null) {
+                    grp = new ArrayList<>();
+                    hullClusters.put(key, grp);
                 }
-                // Next check any existing division that already includes this hull category or has composite min > 0
-                if (bestMatch == null) {
+                grp.add(m);
+            }
+            for (List<FleetMemberAPI> grp : hullClusters.values()) {
+                sortSameFamilyMembersForPacking(grp);
+            }
+
+            // Pass 2a: Top up existing divisions that ALREADY contain the same hull family (up to catMax / MAX_DIVISION_SIZE)
+            for (List<FleetMemberAPI> grp : hullClusters.values()) {
+                if (grp.isEmpty()) continue;
+                FleetMemberAPI sample = grp.get(0);
+                DoctrineHullCategory cat = classifyHullCategory(sample, doctrine);
+                DivisionArchetype desiredArch = classifyFleetMemberArchetype(sample, doctrine);
+                int catMax = doctrine.getMax(cat);
+                if (catMax <= 0 || desiredArch == null) continue;
+                String fam = resolveCanonicalHullFamilyKey(sample);
+
+                while (!grp.isEmpty()) {
+                    String exactHull = resolveExactHullKey(grp.get(0));
+                    PermanentDivisionSpec bestSpec = null;
+                    int bestScore = -1;
                     for (PermanentDivisionSpec spec : specs) {
                         if (spec.memberIds.size() >= MAX_DIVISION_SIZE) continue;
                         int currCat = countCategoryInDivision(spec, cat, fleetById);
-                        if (currCat < catMax && (currCat > 0 || doctrine.getMin(cat) > 0)) {
-                            bestMatch = spec;
-                            break;
+                        if (currCat >= catMax) continue;
+                        if (spec.archetype != desiredArch && currCat <= 0 && doctrine.getMin(cat) <= 0) continue;
+                        int famCount = countHullFamilyInDivision(spec, fam, fleetById);
+                        if (famCount <= 0) continue;
+                        int exactCount = countExactHullInDivision(spec, exactHull, fleetById);
+                        int freeSlots = Math.min(MAX_DIVISION_SIZE - spec.memberIds.size(), catMax - currCat);
+                        int score = (spec.archetype == desiredArch ? 10000 : 0)
+                                + (freeSlots >= grp.size() ? 2000 : 0)
+                                + exactCount * 100
+                                + famCount * 10;
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestSpec = spec;
                         }
                     }
+                    if (bestSpec == null) break;
+                    int currCat = countCategoryInDivision(bestSpec, cat, fleetById);
+                    int canAdd = Math.min(grp.size(), Math.min(MAX_DIVISION_SIZE - bestSpec.memberIds.size(), catMax - currCat));
+                    if (canAdd <= 0) break;
+                    for (int k = 0; k < canAdd; k++) {
+                        FleetMemberAPI picked = grp.remove(0);
+                        bestSpec.memberIds.add(picked.getId());
+                    }
+                    ensureValidFlagship(bestSpec, fleet);
                 }
             }
 
-            if (bestMatch != null) {
-                bestMatch.memberIds.add(m.getId());
-                ensureValidFlagship(bestMatch, fleet);
-            } else {
-                afterExistingPass.add(m);
+            // Pass 2b: Place whole remaining hull clusters into understrength existing divisions of matching archetype
+            // ONLY when the entire same-hull cluster fits without splitting (best-fit / tightest slack first).
+            List<List<FleetMemberAPI>> remClusters = new ArrayList<>();
+            for (List<FleetMemberAPI> grp : hullClusters.values()) {
+                if (!grp.isEmpty()) remClusters.add(grp);
             }
+            Collections.sort(remClusters, new Comparator<List<FleetMemberAPI>>() {
+                @Override
+                public int compare(List<FleetMemberAPI> a, List<FleetMemberAPI> b) {
+                    if (a.size() != b.size()) return Integer.compare(b.size(), a.size());
+                    return Float.compare(b.get(0).getDeploymentPointsCost(), a.get(0).getDeploymentPointsCost());
+                }
+            });
+
+            List<FleetMemberAPI> afterExistingPass = new ArrayList<>();
+            for (List<FleetMemberAPI> grp : remClusters) {
+                FleetMemberAPI sample = grp.get(0);
+                DoctrineHullCategory cat = classifyHullCategory(sample, doctrine);
+                DivisionArchetype desiredArch = classifyFleetMemberArchetype(sample, doctrine);
+                int catMax = doctrine.getMax(cat);
+                PermanentDivisionSpec bestWholeFit = null;
+                int bestSlack = Integer.MAX_VALUE;
+
+                if (catMax > 0 && desiredArch != null) {
+                    for (PermanentDivisionSpec spec : specs) {
+                        if (spec.memberIds.size() + grp.size() > MAX_DIVISION_SIZE) continue;
+                        int currCat = countCategoryInDivision(spec, cat, fleetById);
+                        if (currCat + grp.size() > catMax) continue;
+                        boolean archMatch = (spec.archetype == desiredArch);
+                        boolean compMatch = !archMatch && (currCat > 0 || doctrine.getMin(cat) > 0);
+                        if (!archMatch && !compMatch) continue;
+                        int slack = (catMax - (currCat + grp.size())) + (archMatch ? 0 : 100);
+                        if (slack < bestSlack) {
+                            bestSlack = slack;
+                            bestWholeFit = spec;
+                        }
+                    }
+                }
+
+                if (bestWholeFit != null) {
+                    for (FleetMemberAPI m : grp) {
+                        bestWholeFit.memberIds.add(m.getId());
+                    }
+                    ensureValidFlagship(bestWholeFit, fleet);
+                } else {
+                    afterExistingPass.addAll(grp);
+                }
+            }
+            unassigned = afterExistingPass;
         }
-        unassigned = afterExistingPass;
 
         // Pass 3: Automatically create new divisions for all remaining unassigned ships
         boolean hasAnyPositiveMin = false;
@@ -5757,16 +6097,23 @@ public class PermanentDivisionManager {
                 List<FleetMemberAPI> seedMembers = new ArrayList<>();
                 for (DoctrineHullCategory cat : DoctrineHullCategory.values()) {
                     int minReq = doctrine.getMin(cat);
+                    if (minReq <= 0) continue;
+                    String chosenFam = null;
                     for (int i = 0; i < minReq && seedMembers.size() < MAX_DIVISION_SIZE; i++) {
-                        FleetMemberAPI picked = popFirstUnassignedOfCategory(unassigned, cat);
+                        FleetMemberAPI picked = popBestHullMatchOfCategoryForFamily(
+                                unassigned, cat, chosenFam, minReq - i);
                         if (picked != null) {
+                            if (chosenFam == null) {
+                                chosenFam = resolveCanonicalHullFamilyKey(picked);
+                            }
                             seedMembers.add(picked);
                         }
                     }
                 }
                 if (seedMembers.isEmpty()) break;
 
-                // Top up this new division up to max hulls (capped at 10) from remaining unassigned ships
+                // Top up this new division up to max hulls (capped at 10) from remaining unassigned ships,
+                // preferring hulls already in seedMembers first!
                 DivisionArchetype arch = classifyFleetMemberArchetype(seedMembers.get(0), doctrine);
                 if (arch == null) break;
                 PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
@@ -5774,16 +6121,26 @@ public class PermanentDivisionManager {
                     newSpec.memberIds.add(sm.getId());
                 }
 
-                for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
-                    FleetMemberAPI cand = unassigned.get(i);
-                    DoctrineHullCategory cCat = classifyHullCategory(cand);
-                    int cMax = doctrine.getMax(cCat);
-                    if (cMax > 0 && countCategoryInDivision(newSpec, cCat, fleetById) < cMax
-                            && (classifyFleetMemberArchetype(cand, doctrine) == arch || doctrine.getMin(cCat) > 0)) {
+                for (int affinityPass = 0; affinityPass < 2 && newSpec.memberIds.size() < MAX_DIVISION_SIZE; affinityPass++) {
+                    for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
+                        FleetMemberAPI cand = unassigned.get(i);
+                        DoctrineHullCategory cCat = classifyHullCategory(cand, doctrine);
+                        int cMax = doctrine.getMax(cCat);
+                        boolean eligibleForDiv = cMax > 0
+                                && countCategoryInDivision(newSpec, cCat, fleetById) < cMax
+                                && (classifyFleetMemberArchetype(cand, doctrine) == arch || doctrine.getMin(cCat) > 0);
+                        if (!eligibleForDiv) {
+                            i++;
+                            continue;
+                        }
+                        boolean matchesSeedHull = countHullFamilyInDivision(
+                                newSpec, resolveCanonicalHullFamilyKey(cand), fleetById) > 0;
+                        if (affinityPass == 0 && !matchesSeedHull) {
+                            i++;
+                            continue;
+                        }
                         newSpec.memberIds.add(cand.getId());
                         unassigned.remove(i);
-                    } else {
-                        i++;
                     }
                 }
                 ensureValidFlagship(newSpec, fleet);
@@ -5791,52 +6148,62 @@ public class PermanentDivisionManager {
         }
 
         // 3b. Group any remaining unassigned ships into new divisions (up to doctrine.getMax(cat) and MAX_DIVISION_SIZE = 10)
-        // Sort unassigned by Weight Class & Role first (Heavy Capital -> Cruiser -> Destroyer -> Frigate -> Non-Combatant),
-        // and within the same weight class/role prefer ships with commanders so they lead new divisions!
-        final FleetDoctrineConfig sortDocRef = doctrine;
-        Collections.sort(unassigned, new Comparator<FleetMemberAPI>() {
-            @Override
-            public int compare(FleetMemberAPI a, FleetMemberAPI b) {
-                int rA = getArchetypeWeightAndRoleSortOrder(classifyFleetMemberArchetype(a, sortDocRef));
-                int rB = getArchetypeWeightAndRoleSortOrder(classifyFleetMemberArchetype(b, sortDocRef));
-                if (rA != rB) return Integer.compare(rA, rB);
-                boolean aCmd = a.getCaptain() != null && !a.getCaptain().isDefault();
-                boolean bCmd = b.getCaptain() != null && !b.getCaptain().isDefault();
-                if (aCmd != bCmd) return aCmd ? -1 : 1;
-                return Float.compare(b.getDeploymentPointsCost(), a.getDeploymentPointsCost());
+        // Bucket by (DivisionArchetype, DoctrineHullCategory) ordered by Weight Class & Role, then pack same-hull groups
+        // together up to effectiveCatMax via distributePoolWithCommandersFirst!
+        if (!unassigned.isEmpty()) {
+            final FleetDoctrineConfig sortDocRef = doctrine;
+            Collections.sort(unassigned, new Comparator<FleetMemberAPI>() {
+                @Override
+                public int compare(FleetMemberAPI a, FleetMemberAPI b) {
+                    DivisionArchetype archA = classifyFleetMemberArchetype(a, sortDocRef);
+                    DivisionArchetype archB = classifyFleetMemberArchetype(b, sortDocRef);
+                    int rA = getArchetypeWeightAndRoleSortOrder(archA);
+                    int rB = getArchetypeWeightAndRoleSortOrder(archB);
+                    if (rA != rB) return Integer.compare(rA, rB);
+                    int aOrd = archA != null ? archA.ordinal() : 999;
+                    int bOrd = archB != null ? archB.ordinal() : 999;
+                    if (aOrd != bOrd) return Integer.compare(aOrd, bOrd);
+                    DoctrineHullCategory cA = classifyHullCategory(a, sortDocRef);
+                    DoctrineHullCategory cB = classifyHullCategory(b, sortDocRef);
+                    if (cA != cB) return Integer.compare(cA.ordinal(), cB.ordinal());
+                    return Float.compare(b.getDeploymentPointsCost(), a.getDeploymentPointsCost());
+                }
+            });
+
+            Map<String, List<FleetMemberAPI>> bucketsByArchAndCat = new LinkedHashMap<>();
+            Map<String, DivisionArchetype> archByBucketKey = new LinkedHashMap<>();
+            Map<String, DoctrineHullCategory> catByBucketKey = new LinkedHashMap<>();
+            for (FleetMemberAPI m : unassigned) {
+                DivisionArchetype arch = classifyFleetMemberArchetype(m, doctrine);
+                if (arch == null) continue;
+                DoctrineHullCategory cat = classifyHullCategory(m, doctrine);
+                String bKey = arch.name() + "|" + cat.name();
+                List<FleetMemberAPI> bList = bucketsByArchAndCat.get(bKey);
+                if (bList == null) {
+                    bList = new ArrayList<>();
+                    bucketsByArchAndCat.put(bKey, bList);
+                    archByBucketKey.put(bKey, arch);
+                    catByBucketKey.put(bKey, cat);
+                }
+                bList.add(m);
             }
-        });
-        while (!unassigned.isEmpty()) {
-            FleetMemberAPI lead = unassigned.remove(0);
-            DoctrineHullCategory leadCat = classifyHullCategory(lead);
-            DivisionArchetype arch = classifyFleetMemberArchetype(lead, doctrine);
-            if (arch == null) continue;
-            int effectiveCatMax = Math.min(MAX_DIVISION_SIZE, Math.max(1, doctrine.getMax(leadCat)));
 
-            PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
-            newSpec.memberIds.add(lead.getId());
-
-            // Prefer filling remaining slots with non-commanded ships first if other same-category ships have commanders to lead the next division
-            for (int pass = 0; pass < 2 && newSpec.memberIds.size() < MAX_DIVISION_SIZE; pass++) {
-                for (int i = 0; i < unassigned.size() && newSpec.memberIds.size() < MAX_DIVISION_SIZE; ) {
-                    FleetMemberAPI cand = unassigned.get(i);
-                    DoctrineHullCategory cCat = classifyHullCategory(cand);
-                    DivisionArchetype cArch = classifyFleetMemberArchetype(cand, doctrine);
-                    boolean candHasCmd = cand.getCaptain() != null && !cand.getCaptain().isDefault();
-                    if (pass == 0 && candHasCmd) {
-                        i++;
-                        continue;
+            for (Map.Entry<String, List<FleetMemberAPI>> entry : bucketsByArchAndCat.entrySet()) {
+                String bKey = entry.getKey();
+                DivisionArchetype arch = archByBucketKey.get(bKey);
+                DoctrineHullCategory leadCat = catByBucketKey.get(bKey);
+                int effectiveCatMax = Math.min(MAX_DIVISION_SIZE, Math.max(1, doctrine.getMax(leadCat)));
+                List<List<FleetMemberAPI>> packedDivs = distributePoolWithCommandersFirst(entry.getValue(), effectiveCatMax);
+                for (List<FleetMemberAPI> group : packedDivs) {
+                    if (group.isEmpty()) continue;
+                    PermanentDivisionSpec newSpec = createNewDivisionInternal(specs, pdata, arch);
+                    for (FleetMemberAPI gm : group) {
+                        newSpec.memberIds.add(gm.getId());
                     }
-                    if (cCat == leadCat && cArch == arch
-                            && countCategoryInDivision(newSpec, leadCat, fleetById) < effectiveCatMax) {
-                        newSpec.memberIds.add(cand.getId());
-                        unassigned.remove(i);
-                    } else {
-                        i++;
-                    }
+                    ensureValidFlagship(newSpec, fleet);
                 }
             }
-            ensureValidFlagship(newSpec, fleet);
+            unassigned.clear();
         }
 
         for (PermanentDivisionSpec s : specs) {
@@ -5865,16 +6232,146 @@ public class PermanentDivisionManager {
         return count;
     }
 
-    private static FleetMemberAPI popFirstUnassignedOfCategory(
+    private static int countHullFamilyInDivision(
+            PermanentDivisionSpec spec,
+            String canonicalFamily,
+            Map<String, FleetMemberAPI> fleetById) {
+        if (spec == null || canonicalFamily == null || fleetById == null) return 0;
+        int count = 0;
+        for (String id : spec.memberIds) {
+            FleetMemberAPI m = fleetById.get(id);
+            if (m != null && canonicalFamily.equals(resolveCanonicalHullFamilyKey(m))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int countExactHullInDivision(
+            PermanentDivisionSpec spec,
+            String exactHull,
+            Map<String, FleetMemberAPI> fleetById) {
+        if (spec == null || exactHull == null || fleetById == null) return 0;
+        int count = 0;
+        for (String id : spec.memberIds) {
+            FleetMemberAPI m = fleetById.get(id);
+            if (m != null && exactHull.equals(resolveExactHullKey(m))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static FleetMemberAPI popBestHullMatchOfCategory(
             List<FleetMemberAPI> unassigned,
-            DoctrineHullCategory cat) {
+            DoctrineHullCategory cat,
+            PermanentDivisionSpec spec,
+            Map<String, FleetMemberAPI> fleetById,
+            int stillNeeded) {
+        // 1. Prefer an unassigned ship whose exact hull or hull family is already in spec
+        int bestExistingIdx = -1;
+        int bestExistingScore = -1;
+        Map<String, Integer> catFamilyCounts = new LinkedHashMap<>();
         for (int i = 0; i < unassigned.size(); i++) {
             FleetMemberAPI m = unassigned.get(i);
-            if (classifyHullCategory(m) == cat) {
+            if (classifyHullCategory(m) != cat) continue;
+            String fam = resolveCanonicalHullFamilyKey(m);
+            Integer prev = catFamilyCounts.get(fam);
+            catFamilyCounts.put(fam, prev == null ? 1 : prev + 1);
+            if (spec != null && fleetById != null) {
+                int famInSpec = countHullFamilyInDivision(spec, fam, fleetById);
+                if (famInSpec > 0) {
+                    int exactInSpec = countExactHullInDivision(spec, resolveExactHullKey(m), fleetById);
+                    int sc = exactInSpec * 100 + famInSpec * 10;
+                    if (sc > bestExistingScore) {
+                        bestExistingScore = sc;
+                        bestExistingIdx = i;
+                    }
+                }
+            }
+        }
+        if (bestExistingIdx >= 0) {
+            return unassigned.remove(bestExistingIdx);
+        }
+
+        // 2. Otherwise pick from a hull family that has >= stillNeeded ships (or largest family in cat)
+        String bestFam = null;
+        int bestFamScore = -1;
+        for (Map.Entry<String, Integer> e : catFamilyCounts.entrySet()) {
+            int cnt = e.getValue();
+            int sc = (cnt >= stillNeeded ? 10000 : 0) + cnt * 10;
+            if (sc > bestFamScore) {
+                bestFamScore = sc;
+                bestFam = e.getKey();
+            }
+        }
+        return popBestHullMatchOfCategoryForFamily(unassigned, cat, bestFam, stillNeeded);
+    }
+
+    private static FleetMemberAPI popBestHullMatchOfCategoryForFamily(
+            List<FleetMemberAPI> unassigned,
+            DoctrineHullCategory cat,
+            String preferredFamily,
+            int stillNeeded) {
+        if (preferredFamily != null) {
+            for (int i = 0; i < unassigned.size(); i++) {
+                FleetMemberAPI m = unassigned.get(i);
+                if (classifyHullCategory(m) == cat && preferredFamily.equals(resolveCanonicalHullFamilyKey(m))) {
+                    return unassigned.remove(i);
+                }
+            }
+        }
+        // Pick largest available hull family in cat
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (FleetMemberAPI m : unassigned) {
+            if (classifyHullCategory(m) != cat) continue;
+            String fam = resolveCanonicalHullFamilyKey(m);
+            Integer prev = counts.get(fam);
+            counts.put(fam, prev == null ? 1 : prev + 1);
+        }
+        String targetFam = null;
+        int bestScore = -1;
+        for (Map.Entry<String, Integer> e : counts.entrySet()) {
+            int cnt = e.getValue();
+            int sc = (cnt >= stillNeeded ? 10000 : 0) + cnt * 10;
+            if (sc > bestScore) {
+                bestScore = sc;
+                targetFam = e.getKey();
+            }
+        }
+        for (int i = 0; i < unassigned.size(); i++) {
+            FleetMemberAPI m = unassigned.get(i);
+            if (classifyHullCategory(m) == cat
+                    && (targetFam == null || targetFam.equals(resolveCanonicalHullFamilyKey(m)))) {
                 return unassigned.remove(i);
             }
         }
         return null;
+    }
+
+    private static void sortSameFamilyMembersForPacking(List<FleetMemberAPI> grp) {
+        if (grp == null || grp.size() <= 1) return;
+        final Map<String, Integer> exactCounts = new HashMap<>();
+        for (FleetMemberAPI m : grp) {
+            String ex = resolveExactHullKey(m);
+            Integer prev = exactCounts.get(ex);
+            exactCounts.put(ex, prev == null ? 1 : prev + 1);
+        }
+        Collections.sort(grp, new Comparator<FleetMemberAPI>() {
+            @Override
+            public int compare(FleetMemberAPI a, FleetMemberAPI b) {
+                String exA = resolveExactHullKey(a);
+                String exB = resolveExactHullKey(b);
+                int cntA = exactCounts.containsKey(exA) ? exactCounts.get(exA) : 0;
+                int cntB = exactCounts.containsKey(exB) ? exactCounts.get(exB) : 0;
+                if (cntA != cntB) return Integer.compare(cntB, cntA);
+                int exCmp = exA.compareTo(exB);
+                if (exCmp != 0) return exCmp;
+                return Float.compare(
+                        computeFlagshipCandidateScore(b, false),
+                        computeFlagshipCandidateScore(a, false));
+            }
+        });
     }
 
     public static DoctrineHullCategory classifyHullCategory(FleetMemberAPI member) {
@@ -6184,7 +6681,7 @@ public class PermanentDivisionManager {
                 if (cat != DoctrineHullCategory.FREIGHTER
                         && cat != DoctrineHullCategory.TANKER
                         && cat != DoctrineHullCategory.TRANSPORT
-                        && !m.isCivilian()) {
+                        && (!m.isCivilian() || ShipCapabilityProfile.isCombatFreighterHull(m.getHullSpec()))) {
                     allCivilian = false;
                 }
                 DivisionArchetype mArch = classifyFleetMemberArchetype(m, doctrine);
@@ -7078,16 +7575,13 @@ public class PermanentDivisionManager {
         List<FleetMemberAPI> phaseCruisers = buckets.get(DivisionArchetype.PHASE_CRUISER_DIVISION);
 
         // 1. Capital Weight Class (Battleship, Battlecruiser, Missile Battleship, Battlecarrier, Fleet Carrier)
-        for (int i = 0; i < capitals.size(); i += 2) {
+        if (capitals.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty() && missileCruisers.isEmpty()) {
             List<FleetMemberAPI> group = new ArrayList<>();
-            group.add(capitals.get(i));
-            if (i + 1 < capitals.size()) {
-                group.add(capitals.get(i + 1));
-            }
-            if (group.size() == 1 && lineCruisers.size() == 1 && strikeCruisers.isEmpty() && missileCruisers.isEmpty()) {
-                group.add(lineCruisers.remove(0));
-            }
+            group.add(capitals.get(0));
+            group.add(lineCruisers.remove(0));
             addBuiltDivision(specs, pdata, DivisionArchetype.BATTLESHIP_DIVISION, group);
+        } else {
+            chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.BATTLESHIP_DIVISION, capitals, 2);
         }
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.BATTLECRUISER_DIVISION, battlecruisers, 2);
         chunkFleetMembersIntoSpecs(specs, pdata, DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, missileCapitals, 2);
@@ -7151,67 +7645,191 @@ public class PermanentDivisionManager {
         if (pool == null || pool.isEmpty()) return chunks;
         int cap = Math.max(1, Math.min(MAX_DIVISION_SIZE, maxPerDiv));
 
-        List<FleetMemberAPI> withCmd = new ArrayList<>();
-        List<FleetMemberAPI> withoutCmd = new ArrayList<>();
+        // 1. Group ships by canonical hull family so same-kind hulls stay together up to the hull limit!
+        Map<String, List<FleetMemberAPI>> byFamily = new LinkedHashMap<>();
         for (FleetMemberAPI m : pool) {
             if (m == null) continue;
-            if (m.isFlagship() || (m.getCaptain() != null && !m.getCaptain().isDefault())) {
-                withCmd.add(m);
-            } else {
-                withoutCmd.add(m);
+            String fam = resolveCanonicalHullFamilyKey(m);
+            List<FleetMemberAPI> grp = byFamily.get(fam);
+            if (grp == null) {
+                grp = new ArrayList<>();
+                byFamily.put(fam, grp);
             }
+            grp.add(m);
         }
-        Comparator<FleetMemberAPI> byScore = new Comparator<FleetMemberAPI>() {
+        if (byFamily.isEmpty()) return chunks;
+
+        final Map<String, Float> maxDpByFamily = new HashMap<>();
+        final Map<String, Float> maxFlagScoreByFamily = new HashMap<>();
+        final Map<String, Integer> remByFamily = new HashMap<>();
+        for (Map.Entry<String, List<FleetMemberAPI>> e : byFamily.entrySet()) {
+            String fam = e.getKey();
+            List<FleetMemberAPI> grp = e.getValue();
+            sortSameFamilyMembersForPacking(grp);
+            float maxDp = 0f;
+            float maxFs = -1f;
+            for (FleetMemberAPI m : grp) {
+                if (m.getDeploymentPointsCost() > maxDp) maxDp = m.getDeploymentPointsCost();
+                float fs = computeFlagshipCandidateScore(m, false);
+                if (fs > maxFs) maxFs = fs;
+            }
+            maxDpByFamily.put(fam, maxDp);
+            maxFlagScoreByFamily.put(fam, maxFs);
+            remByFamily.put(fam, grp.size() % cap);
+        }
+
+        List<String> sortedFamilies = new ArrayList<>(byFamily.keySet());
+        Collections.sort(sortedFamilies, new Comparator<String>() {
             @Override
-            public int compare(FleetMemberAPI a, FleetMemberAPI b) {
-                return Float.compare(
-                        computeFlagshipCandidateScore(b, false),
-                        computeFlagshipCandidateScore(a, false));
+            public int compare(String a, String b) {
+                int sA = byFamily.get(a).size();
+                int sB = byFamily.get(b).size();
+                if (sA != sB) return Integer.compare(sB, sA);
+                int dpCmp = Float.compare(maxDpByFamily.get(b), maxDpByFamily.get(a));
+                if (dpCmp != 0) return dpCmp;
+                int fsCmp = Float.compare(maxFlagScoreByFamily.get(b), maxFlagScoreByFamily.get(a));
+                if (fsCmp != 0) return fsCmp;
+                return a.compareTo(b);
             }
-        };
-        Collections.sort(withCmd, byScore);
-        Collections.sort(withoutCmd, byScore);
+        });
 
-        // Compute division sizes so we don't leave a lone 1-ship tail when avoidable
-        int total = withCmd.size() + withoutCmd.size();
-        List<Integer> targetSizes = new ArrayList<>();
-        int rem = total;
-        while (rem > 0) {
-            int take = Math.min(cap, rem);
-            if (rem > cap && (rem - take) == 1 && take > 2) {
-                take -= 1;
+        int totalFamilies = sortedFamilies.size();
+        List<List<FleetMemberAPI>> pureFullDivs = new ArrayList<>();
+        List<List<FleetMemberAPI>> remainderGroups = new ArrayList<>();
+
+        for (String fam : sortedFamilies) {
+            List<FleetMemberAPI> grp = byFamily.get(fam);
+            if (grp.size() > cap) {
+                int otherRemSum = 0;
+                for (Map.Entry<String, Integer> re : remByFamily.entrySet()) {
+                    if (!fam.equals(re.getKey()) && re.getValue() > 0) {
+                        otherRemSum += re.getValue();
+                    }
+                }
+
+                List<FleetMemberAPI> leaders = new ArrayList<>();
+                List<FleetMemberAPI> nonLeaders = new ArrayList<>();
+                for (FleetMemberAPI m : grp) {
+                    if (m.isFlagship() || (m.getCaptain() != null && !m.getCaptain().isDefault())) {
+                        leaders.add(m);
+                    } else {
+                        nonLeaders.add(m);
+                    }
+                }
+
+                List<Integer> sliceSizes = new ArrayList<>();
+                if ((grp.size() % cap) == 1 && otherRemSum == 0 && cap > 2) {
+                    int rem = grp.size();
+                    while (rem > 0) {
+                        int take = Math.min(cap, rem);
+                        if (rem > cap && (rem - take) == 1 && take > 2) {
+                            take -= 1;
+                        }
+                        sliceSizes.add(take);
+                        rem -= take;
+                    }
+                } else {
+                    int fullCount = grp.size() / cap;
+                    for (int k = 0; k < fullCount; k++) {
+                        sliceSizes.add(cap);
+                    }
+                    if ((grp.size() % cap) > 0) {
+                        sliceSizes.add(grp.size() % cap);
+                    }
+                }
+
+                List<List<FleetMemberAPI>> slices = new ArrayList<>(sliceSizes.size());
+                for (int k = 0; k < sliceSizes.size(); k++) {
+                    slices.add(new ArrayList<FleetMemberAPI>());
+                }
+                int lIdx = 0;
+                for (int k = 0; k < slices.size() && lIdx < leaders.size(); k++) {
+                    if (slices.get(k).size() < sliceSizes.get(k)) {
+                        slices.get(k).add(leaders.get(lIdx++));
+                    }
+                }
+                List<FleetMemberAPI> poolRest = new ArrayList<>();
+                while (lIdx < leaders.size()) {
+                    poolRest.add(leaders.get(lIdx++));
+                }
+                poolRest.addAll(nonLeaders);
+                int rIdx = 0;
+                for (int k = 0; k < slices.size(); k++) {
+                    List<FleetMemberAPI> sl = slices.get(k);
+                    int target = sliceSizes.get(k);
+                    while (sl.size() < target && rIdx < poolRest.size()) {
+                        sl.add(poolRest.get(rIdx++));
+                    }
+                    if (sl.size() == cap || (otherRemSum == 0 && totalFamilies == 1)) {
+                        pureFullDivs.add(sl);
+                    } else {
+                        remainderGroups.add(sl);
+                    }
+                }
+            } else if (grp.size() == cap) {
+                pureFullDivs.add(new ArrayList<>(grp));
+            } else {
+                remainderGroups.add(new ArrayList<>(grp));
             }
-            targetSizes.add(take);
-            rem -= take;
         }
 
-        for (int i = 0; i < targetSizes.size(); i++) {
-            chunks.add(new ArrayList<FleetMemberAPI>());
-        }
+        // 2. Pack remaining whole hull-family groups together up to cap (Best-Fit Decreasing)
+        // so same-hull clusters are never split across divisions!
+        Collections.sort(remainderGroups, new Comparator<List<FleetMemberAPI>>() {
+            @Override
+            public int compare(List<FleetMemberAPI> a, List<FleetMemberAPI> b) {
+                if (a.size() != b.size()) return Integer.compare(b.size(), a.size());
+                float fsA = computeFlagshipCandidateScore(a.get(0), false);
+                float fsB = computeFlagshipCandidateScore(b.get(0), false);
+                int fsCmp = Float.compare(fsB, fsA);
+                if (fsCmp != 0) return fsCmp;
+                return resolveCanonicalHullFamilyKey(a.get(0)).compareTo(resolveCanonicalHullFamilyKey(b.get(0)));
+            }
+        });
 
-        // 1. Seed each division with 1 commander-led ship first (so every division gets a commander flagship if possible)
-        int cmdIdx = 0;
-        for (int c = 0; c < chunks.size() && cmdIdx < withCmd.size(); c++) {
-            if (chunks.get(c).size() < targetSizes.get(c)) {
-                chunks.get(c).add(withCmd.get(cmdIdx++));
+        List<List<FleetMemberAPI>> packedBins = new ArrayList<>();
+        for (List<FleetMemberAPI> grp : remainderGroups) {
+            List<FleetMemberAPI> bestBin = null;
+            int bestSlack = Integer.MAX_VALUE;
+            for (List<FleetMemberAPI> bin : packedBins) {
+                int slack = cap - (bin.size() + grp.size());
+                if (slack >= 0 && slack < bestSlack) {
+                    bestSlack = slack;
+                    bestBin = bin;
+                }
+            }
+            if (bestBin != null) {
+                bestBin.addAll(grp);
+            } else {
+                packedBins.add(new ArrayList<>(grp));
             }
         }
 
-        // 2. Remaining ships (any extra commander-led ships + non-commanded ships) fill out the divisions
-        List<FleetMemberAPI> rest = new ArrayList<>();
-        while (cmdIdx < withCmd.size()) {
-            rest.add(withCmd.get(cmdIdx++));
-        }
-        rest.addAll(withoutCmd);
+        chunks.addAll(pureFullDivs);
+        chunks.addAll(packedBins);
 
-        int rIdx = 0;
-        for (int c = 0; c < chunks.size(); c++) {
-            List<FleetMemberAPI> divList = chunks.get(c);
-            int target = targetSizes.get(c);
-            while (divList.size() < target && rIdx < rest.size()) {
-                divList.add(rest.get(rIdx++));
+        // Order divisions so any division containing the Fleet Flagship (or highest flagship score) comes first
+        Collections.sort(chunks, new Comparator<List<FleetMemberAPI>>() {
+            @Override
+            public int compare(List<FleetMemberAPI> a, List<FleetMemberAPI> b) {
+                float bestA = -1f;
+                for (FleetMemberAPI m : a) {
+                    float s = computeFlagshipCandidateScore(m, false);
+                    if (s > bestA) bestA = s;
+                }
+                float bestB = -1f;
+                for (FleetMemberAPI m : b) {
+                    float s = computeFlagshipCandidateScore(m, false);
+                    if (s > bestB) bestB = s;
+                }
+                // Keep flagship division at index 0, otherwise larger/heavier homogeneous divisions first
+                boolean aFlag = bestA >= 5000f;
+                boolean bFlag = bestB >= 5000f;
+                if (aFlag != bFlag) return aFlag ? -1 : 1;
+                if (a.size() != b.size()) return Integer.compare(b.size(), a.size());
+                return Float.compare(bestB, bestA);
             }
-        }
+        });
         return chunks;
     }
 
@@ -7364,7 +7982,7 @@ public class PermanentDivisionManager {
     }
 
     public static DivisionArchetype classifyFleetMemberArchetype(FleetMemberAPI member) {
-        return classifyFleetMemberArchetype(member, null);
+        return classifyFleetMemberArchetype(member, getFleetDoctrine());
     }
 
     /**

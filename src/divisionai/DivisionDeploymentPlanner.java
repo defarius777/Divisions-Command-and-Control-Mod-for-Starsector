@@ -498,7 +498,8 @@ public final class DivisionDeploymentPlanner {
         Map<DivisionArchetype, List<FleetMemberAPI>> byArch = new LinkedHashMap<>();
         for (int i = 0, n = allMembers.size(); i < n; i++) {
             FleetMemberAPI m = allMembers.get(i);
-            if (m == null || m.getId() == null || m.isFighterWing() || m.isCivilian()) continue;
+            if (m == null || m.getId() == null || m.isFighterWing()) continue;
+            if (m.isCivilian() && !ShipCapabilityProfile.isCombatFreighterHull(m.getHullSpec())) continue;
             DivisionArchetype arch = PermanentDivisionManager.classifyFleetMemberArchetype(m);
             if (arch == null) arch = DivisionArchetype.CRUISER_DIVISION;
             List<FleetMemberAPI> bucket = byArch.get(arch);

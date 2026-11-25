@@ -895,6 +895,7 @@ public final class FactionLibrary {
 
     public static boolean isCivilianLogisticsMember(FleetMemberAPI m) {
         if (m == null) return false;
+        if (ShipCapabilityProfile.isCombatFreighterHull(m.getHullSpec())) return false;
         if (m.isCivilian()) return true;
         ShipHullSpecAPI spec = m.getHullSpec();
         if (spec == null || spec.getHints() == null) return false;

@@ -19,7 +19,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -363,8 +365,14 @@ public class DivisionAutoFormer {
             BattleGroupState battleGroup,
             List<ShipCapabilityProfile> pool) {
         boolean isAlliedPool = pool != null && !pool.isEmpty() && pool.get(0).ship != null && pool.get(0).ship.isAlly();
+        return resolveDoctrineForBattleGroup(battleGroup, isAlliedPool);
+    }
+
+    private static PermanentDivisionManager.FleetDoctrineConfig resolveDoctrineForBattleGroup(
+            BattleGroupState battleGroup,
+            boolean isAlliedGroup) {
         if (battleGroup != null && (battleGroup.side == 1
-                || isAlliedPool
+                || isAlliedGroup
                 || (battleGroup.factionId != null
                 && !battleGroup.factionId.isEmpty()
                 && !"player".equalsIgnoreCase(battleGroup.factionId)))) {
@@ -628,6 +636,26 @@ public class DivisionAutoFormer {
         return newlyCreated;
     }
 
+    private static String resolveProfileHullFamilyKey(ShipCapabilityProfile p) {
+        if (p == null || p.ship == null) return "unknown_hull";
+        String fb = null;
+        try {
+            if (p.ship.getFleetMember() != null) fb = p.ship.getFleetMember().getHullId();
+        } catch (Throwable ignored) {
+        }
+        return PermanentDivisionManager.resolveCanonicalHullFamilyKey(p.ship.getHullSpec(), fb);
+    }
+
+    private static String resolveProfileExactHullKey(ShipCapabilityProfile p) {
+        if (p == null || p.ship == null) return "unknown_hull";
+        String fb = null;
+        try {
+            if (p.ship.getFleetMember() != null) fb = p.ship.getFleetMember().getHullId();
+        } catch (Throwable ignored) {
+        }
+        return PermanentDivisionManager.resolveExactHullKey(p.ship.getHullSpec(), fb);
+    }
+
     private static List<DivisionState> chunkIntoDivisions(
             BattleGroupState battleGroup,
             DivisionArchetype archetype,
@@ -635,18 +663,120 @@ public class DivisionAutoFormer {
             int maxPerDiv) {
         List<DivisionState> out = new ArrayList<>();
         if (pool.isEmpty()) return out;
+        int cap = Math.max(1, Math.min(PermanentDivisionManager.MAX_DIVISION_SIZE, maxPerDiv));
 
-        int idx = 0;
-        while (idx < pool.size()) {
-            int remaining = pool.size() - idx;
-            int take = Math.min(maxPerDiv, remaining);
-            // Avoid leaving a trailing 1-ship division when we can split evenly (e.g. 5 -> 3 + 2)
-            if (remaining > maxPerDiv && (remaining - take) == 1 && take > 2) {
-                take -= 1;
+        Map<String, List<ShipCapabilityProfile>> byFamily = new LinkedHashMap<>();
+        for (ShipCapabilityProfile p : pool) {
+            if (p == null) continue;
+            String fam = resolveProfileHullFamilyKey(p);
+            List<ShipCapabilityProfile> grp = byFamily.get(fam);
+            if (grp == null) {
+                grp = new ArrayList<>();
+                byFamily.put(fam, grp);
             }
-            List<ShipCapabilityProfile> sub = new ArrayList<>(pool.subList(idx, idx + take));
+            grp.add(p);
+        }
+
+        final Map<String, Integer> remByFam = new HashMap<>();
+        for (Map.Entry<String, List<ShipCapabilityProfile>> e : byFamily.entrySet()) {
+            List<ShipCapabilityProfile> grp = e.getValue();
+            final Map<String, Integer> exactCounts = new HashMap<>();
+            for (ShipCapabilityProfile p : grp) {
+                String ex = resolveProfileExactHullKey(p);
+                Integer prev = exactCounts.get(ex);
+                exactCounts.put(ex, prev == null ? 1 : prev + 1);
+            }
+            Collections.sort(grp, new Comparator<ShipCapabilityProfile>() {
+                @Override
+                public int compare(ShipCapabilityProfile a, ShipCapabilityProfile b) {
+                    String exA = resolveProfileExactHullKey(a);
+                    String exB = resolveProfileExactHullKey(b);
+                    int cntA = exactCounts.containsKey(exA) ? exactCounts.get(exA) : 0;
+                    int cntB = exactCounts.containsKey(exB) ? exactCounts.get(exB) : 0;
+                    if (cntA != cntB) return Integer.compare(cntB, cntA);
+                    int exCmp = exA.compareTo(exB);
+                    if (exCmp != 0) return exCmp;
+                    return Float.compare(b.fpStrength, a.fpStrength);
+                }
+            });
+            remByFam.put(e.getKey(), grp.size() % cap);
+        }
+
+        List<String> sortedFams = new ArrayList<>(byFamily.keySet());
+        Collections.sort(sortedFams, new Comparator<String>() {
+            @Override
+            public int compare(String a, String b) {
+                int sA = byFamily.get(a).size();
+                int sB = byFamily.get(b).size();
+                if (sA != sB) return Integer.compare(sB, sA);
+                return Float.compare(byFamily.get(b).get(0).fpStrength, byFamily.get(a).get(0).fpStrength);
+            }
+        });
+
+        int totalFams = sortedFams.size();
+        List<List<ShipCapabilityProfile>> pureFull = new ArrayList<>();
+        List<List<ShipCapabilityProfile>> remGroups = new ArrayList<>();
+
+        for (String fam : sortedFams) {
+            List<ShipCapabilityProfile> grp = byFamily.get(fam);
+            if (grp.size() > cap) {
+                int otherRemSum = 0;
+                for (Map.Entry<String, Integer> re : remByFam.entrySet()) {
+                    if (!fam.equals(re.getKey()) && re.getValue() > 0) otherRemSum += re.getValue();
+                }
+                int idx = 0;
+                while (idx < grp.size()) {
+                    int remaining = grp.size() - idx;
+                    int take = Math.min(cap, remaining);
+                    if ((grp.size() % cap) == 1 && otherRemSum == 0 && remaining > cap && (remaining - take) == 1 && take > 2) {
+                        take -= 1;
+                    }
+                    List<ShipCapabilityProfile> sl = new ArrayList<>(grp.subList(idx, idx + take));
+                    if (sl.size() == cap || (otherRemSum == 0 && totalFams == 1)) {
+                        pureFull.add(sl);
+                    } else {
+                        remGroups.add(sl);
+                    }
+                    idx += take;
+                }
+            } else if (grp.size() == cap) {
+                pureFull.add(new ArrayList<>(grp));
+            } else {
+                remGroups.add(new ArrayList<>(grp));
+            }
+        }
+
+        Collections.sort(remGroups, new Comparator<List<ShipCapabilityProfile>>() {
+            @Override
+            public int compare(List<ShipCapabilityProfile> a, List<ShipCapabilityProfile> b) {
+                if (a.size() != b.size()) return Integer.compare(b.size(), a.size());
+                return Float.compare(b.get(0).fpStrength, a.get(0).fpStrength);
+            }
+        });
+
+        List<List<ShipCapabilityProfile>> packedBins = new ArrayList<>();
+        for (List<ShipCapabilityProfile> grp : remGroups) {
+            List<ShipCapabilityProfile> bestBin = null;
+            int bestSlack = Integer.MAX_VALUE;
+            for (List<ShipCapabilityProfile> bin : packedBins) {
+                int slack = cap - (bin.size() + grp.size());
+                if (slack >= 0 && slack < bestSlack) {
+                    bestSlack = slack;
+                    bestBin = bin;
+                }
+            }
+            if (bestBin != null) {
+                bestBin.addAll(grp);
+            } else {
+                packedBins.add(new ArrayList<>(grp));
+            }
+        }
+
+        for (List<ShipCapabilityProfile> sub : pureFull) {
             out.add(createDivision(battleGroup, archetype, sub));
-            idx += take;
+        }
+        for (List<ShipCapabilityProfile> sub : packedBins) {
+            out.add(createDivision(battleGroup, archetype, sub));
         }
         return out;
     }
@@ -1087,6 +1217,11 @@ public class DivisionAutoFormer {
     private static DivisionState findExistingDivisionForReinforcement(
             BattleGroupState battleGroup,
             ShipCapabilityProfile prof) {
+        boolean isAlliedShip = prof != null && prof.ship != null && prof.ship.isAlly();
+        PermanentDivisionManager.FleetDoctrineConfig bgDoc = resolveDoctrineForBattleGroup(battleGroup, isAlliedShip);
+        boolean cfAsWarships = (bgDoc == null) || bgDoc.isCombatFreightersAsWarships();
+        boolean forceAuxService = (prof.primaryTag == TacticalTag.CIVILIAN_AUX)
+                || (prof.isCombatFreighter && !cfAsWarships);
         for (DivisionState div : battleGroup.divisions) {
             boolean divIsAlly = (div.flagship != null && div.flagship.isAlly());
             if (divIsAlly != prof.ship.isAlly()) continue;
@@ -1108,8 +1243,11 @@ public class DivisionAutoFormer {
                 if ((dx * dx + dy * dy) > (reinfMaxDist * reinfMaxDist)) continue;
             }
 
-            if (prof.primaryTag == TacticalTag.CIVILIAN_AUX && div.archetype == DivisionArchetype.SERVICE_GROUP) {
-                return div;
+            if (forceAuxService) {
+                if (div.archetype == DivisionArchetype.SERVICE_GROUP) {
+                    return div;
+                }
+                continue;
             }
             if (prof.primaryTag == TacticalTag.MISSILE_PHASE && div.archetype == DivisionArchetype.MISSILE_PHASE_DIVISION) {
                 return div;
@@ -1348,7 +1486,8 @@ public class DivisionAutoFormer {
                     if (battleGroup.side == 0 && isAlliedGroup && !m.isAlly()) continue;
                     if (m.getId() != null && !countedMemberIds.add(m.getId())) continue;
                     float fp = Math.max(1f, m.getFleetPointCost());
-                    DivisionArchetype arch = PermanentDivisionManager.classifyFleetMemberArchetype(m);
+                    DivisionArchetype arch = PermanentDivisionManager.classifyFleetMemberArchetype(
+                            m, resolveDoctrineForBattleGroup(battleGroup, isAlliedGroup));
                     totalFp += fp;
                     switch (arch) {
                         case FLEET_CARRIER_DIVISION:

@@ -3869,6 +3869,283 @@ public class StarsectorUISimulator {
                 return false;
             }
 
+            // Test same-hull-first Auto-Assign & distributePoolWithCommandersFirst (prefers grouping identical/same-family hulls up to hull limit)
+            {
+                List<com.fs.starfarer.api.fleet.FleetMemberAPI> interleavedFrigates = new ArrayList<>();
+                // Interleave 4 Centurions (1 officer) and 4 Lashers (1 officer) -> must form [4 Centurions] and [4 Lashers], never mixed!
+                for (int i = 0; i < 4; i++) {
+                    interleavedFrigates.add(createCustomMockMemberWithHullId(
+                            "aa_cent_" + i, "centurion", "centurion", "Centurion",
+                            com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE, 6f, i == 0));
+                    interleavedFrigates.add(createCustomMockMemberWithHullId(
+                            "aa_lash_" + i, "lasher", i == 1 ? "lasher_xiv" : "lasher", "Lasher",
+                            com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE, 5f, i == 0));
+                }
+                List<List<com.fs.starfarer.api.fleet.FleetMemberAPI>> frigChunks =
+                        divisionai.PermanentDivisionManager.distributePoolWithCommandersFirst(interleavedFrigates, 4);
+                if (frigChunks.size() != 2 || frigChunks.get(0).size() != 4 || frigChunks.get(1).size() != 4) {
+                    System.out.println("FAIL Same-hull distributePoolWithCommandersFirst did not produce two 4-ship divisions");
+                    return false;
+                }
+                for (List<com.fs.starfarer.api.fleet.FleetMemberAPI> chunk : frigChunks) {
+                    String firstBase = chunk.get(0).getHullSpec().getBaseHullId();
+                    for (com.fs.starfarer.api.fleet.FleetMemberAPI fm : chunk) {
+                        if (!firstBase.equals(fm.getHullSpec().getBaseHullId())) {
+                            System.out.println("FAIL Same-hull distributePoolWithCommandersFirst mixed hull families: "
+                                    + firstBase + " vs " + fm.getHullSpec().getBaseHullId());
+                            return false;
+                        }
+                    }
+                }
+
+                // Also verify live PermanentDivisionManager.autoAssignUnassignedMembers() (both Pass 3b creation and Pass 2a top-up!)
+                com.fs.starfarer.api.campaign.SectorAPI prevSec = com.fs.starfarer.api.Global.getSector();
+                final List<com.fs.starfarer.api.fleet.FleetMemberAPI> liveMembers = new ArrayList<>();
+                final Map<String, Object> livePdata = new HashMap<>();
+                final com.fs.starfarer.api.campaign.FleetDataAPI liveFleetData =
+                        (com.fs.starfarer.api.campaign.FleetDataAPI) Proxy.newProxyInstance(
+                                StarsectorUISimulator.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.campaign.FleetDataAPI.class},
+                                (p, m, a) -> "getMembersListCopy".equals(m.getName()) ? new ArrayList<>(liveMembers) : null);
+                final com.fs.starfarer.api.campaign.CampaignFleetAPI livePlayerFleet =
+                        (com.fs.starfarer.api.campaign.CampaignFleetAPI) Proxy.newProxyInstance(
+                                StarsectorUISimulator.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.campaign.CampaignFleetAPI.class},
+                                (p, m, a) -> {
+                                    if ("getFleetData".equals(m.getName())) return liveFleetData;
+                                    if ("isPlayerFleet".equals(m.getName())) return Boolean.TRUE;
+                                    if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                                    return null;
+                                });
+                final com.fs.starfarer.api.campaign.SectorAPI liveSector =
+                        (com.fs.starfarer.api.campaign.SectorAPI) Proxy.newProxyInstance(
+                                StarsectorUISimulator.class.getClassLoader(),
+                                new Class<?>[]{com.fs.starfarer.api.campaign.SectorAPI.class},
+                                (p, m, a) -> {
+                                    if ("getPlayerFleet".equals(m.getName())) return livePlayerFleet;
+                                    if ("getPersistentData".equals(m.getName())) return livePdata;
+                                    if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                                    return null;
+                                });
+                try {
+                    com.fs.starfarer.api.Global.setSector(liveSector);
+                    divisionai.PermanentDivisionManager.FleetDoctrineConfig liveDoc =
+                            divisionai.PermanentDivisionManager.getFleetDoctrine();
+                    liveDoc.setMax(divisionai.PermanentDivisionManager.DoctrineHullCategory.CRUISER, 4);
+                    divisionai.PermanentDivisionManager.saveFleetDoctrine(liveDoc);
+
+                    // Add interleaved 3 Eagles and 3 Dominators -> should form 1 pure Eagle div (3) and 1 pure Dominator div (3)
+                    for (int i = 0; i < 3; i++) {
+                        liveMembers.add(createCustomMockMemberWithHullId(
+                                "live_eagle_" + i, "eagle", "eagle", "Eagle",
+                                com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 20f, i == 0));
+                        liveMembers.add(createCustomMockMemberWithHullId(
+                                "live_dom_" + i, "dominator", "dominator", "Dominator",
+                                com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 25f, i == 0));
+                    }
+                    divisionai.PermanentDivisionManager.autoAssignUnassignedMembers();
+                    List<divisionai.PermanentDivisionManager.PermanentDivisionSpec> firstPassDivs =
+                            divisionai.PermanentDivisionManager.getNonEmptyPermanentDivisions();
+                    if (firstPassDivs.size() != 2) {
+                        System.out.println("FAIL Live autoAssignUnassignedMembers expected 2 pure cruiser divisions, got " + firstPassDivs.size());
+                        return false;
+                    }
+                    for (divisionai.PermanentDivisionManager.PermanentDivisionSpec sp : firstPassDivs) {
+                        boolean allEagle = true;
+                        boolean allDom = true;
+                        for (String mid : sp.memberIds) {
+                            if (!mid.startsWith("live_eagle_")) allEagle = false;
+                            if (!mid.startsWith("live_dom_")) allDom = false;
+                        }
+                        if (sp.memberIds.size() != 3 || (!allEagle && !allDom)) {
+                            System.out.println("FAIL Live autoAssignUnassignedMembers mixed cruiser hulls on initial creation: " + sp.memberIds);
+                            return false;
+                        }
+                    }
+
+                    // Now add 1 more Dominator and 1 more Eagle and hit Auto-Assign again (Pass 2a same-hull affinity up to limit=4!)
+                    liveMembers.add(createCustomMockMemberWithHullId(
+                            "live_dom_3", "dominator", "dominator_xiv", "Dominator (XIV)",
+                            com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 25f, false));
+                    liveMembers.add(createCustomMockMemberWithHullId(
+                            "live_eagle_3", "eagle", "eagle_xiv", "Eagle (XIV)",
+                            com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 22f, false));
+                    divisionai.PermanentDivisionManager.autoAssignUnassignedMembers();
+                    List<divisionai.PermanentDivisionManager.PermanentDivisionSpec> secondPassDivs =
+                            divisionai.PermanentDivisionManager.getNonEmptyPermanentDivisions();
+                    if (secondPassDivs.size() != 2) {
+                        System.out.println("FAIL Live autoAssignUnassignedMembers Pass 2a created extra division instead of topping up to 4: " + secondPassDivs.size());
+                        return false;
+                    }
+                    for (divisionai.PermanentDivisionManager.PermanentDivisionSpec sp : secondPassDivs) {
+                        boolean allEagle = true;
+                        boolean allDom = true;
+                        for (String mid : sp.memberIds) {
+                            if (!mid.startsWith("live_eagle_")) allEagle = false;
+                            if (!mid.startsWith("live_dom_")) allDom = false;
+                        }
+                        if (sp.memberIds.size() != 4 || (!allEagle && !allDom)) {
+                            System.out.println("FAIL Live autoAssignUnassignedMembers Pass 2a did not match new Eagle/Dominator to its same-hull division: " + sp.memberIds);
+                            return false;
+                        }
+                    }
+
+                    // Comprehensive end-to-end check of "Combat Freighters as Warships" switch:
+                    // 1) Vanilla civgrade warship conversions (Buffalo Mk.II, Venture, Prometheus Mk.II, Atlas Mk.II)
+                    //    vs pure civilians (Buffalo, Shepherd, Kite)
+                    com.fs.starfarer.api.fleet.FleetMemberAPI buffaloMk2 = createCustomMockMemberWithCivgrade(
+                            "cf_buf2", "Buffalo Mk.II", com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER,
+                            true, "Destroyer",
+                            java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class),
+                            java.util.Collections.singletonList("civgrade"));
+                    com.fs.starfarer.api.fleet.FleetMemberAPI ventureCr = createCustomMockMemberWithCivgrade(
+                            "cf_venture", "Venture", com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER,
+                            true, "Cruiser",
+                            java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class),
+                            java.util.Arrays.asList("civgrade", "surveying_equipment"));
+                    com.fs.starfarer.api.fleet.FleetMemberAPI promMk2 = createCustomMockMemberWithCivgrade(
+                            "cf_prom2", "Prometheus Mk.II", com.fs.starfarer.api.combat.ShipAPI.HullSize.CAPITAL_SHIP,
+                            true, "Modified Tanker",
+                            java.util.EnumSet.of(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.ALWAYS_PANIC),
+                            java.util.Collections.singletonList("civgrade"));
+                    com.fs.starfarer.api.fleet.FleetMemberAPI atlasMk2 = createCustomMockMemberWithCivgrade(
+                            "cf_atlas2", "Atlas Mk.II", com.fs.starfarer.api.combat.ShipAPI.HullSize.CAPITAL_SHIP,
+                            true, "Modified Superfreighter",
+                            java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class),
+                            java.util.Collections.singletonList("civgrade"));
+                    com.fs.starfarer.api.fleet.FleetMemberAPI pureBuffalo = createCustomMockMemberWithCivgrade(
+                            "civ_buffalo", "Buffalo", com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER,
+                            true, "Freighter",
+                            java.util.EnumSet.of(
+                                    com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.CIVILIAN,
+                                    com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.FREIGHTER),
+                            java.util.Collections.singletonList("civgrade"));
+                    com.fs.starfarer.api.fleet.FleetMemberAPI pureShepherd = createCustomMockMemberWithCivgrade(
+                            "civ_shepherd", "Shepherd", com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE,
+                            true, "Drone Tender",
+                            java.util.EnumSet.of(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.CARRIER),
+                            java.util.Arrays.asList("civgrade", "surveying_equipment", "repair_gantry"));
+                    com.fs.starfarer.api.fleet.FleetMemberAPI pureKite = createCustomMockMemberWithCivgrade(
+                            "civ_kite", "Kite", com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE,
+                            true, "Shuttle",
+                            java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class),
+                            java.util.Collections.singletonList("civgrade"));
+
+                    if (!divisionai.ShipCapabilityProfile.isCombatFreighterHull(buffaloMk2.getHullSpec())
+                            || !divisionai.ShipCapabilityProfile.isCombatFreighterHull(ventureCr.getHullSpec())
+                            || !divisionai.ShipCapabilityProfile.isCombatFreighterHull(promMk2.getHullSpec())
+                            || !divisionai.ShipCapabilityProfile.isCombatFreighterHull(atlasMk2.getHullSpec())
+                            || divisionai.ShipCapabilityProfile.isCombatFreighterHull(pureBuffalo.getHullSpec())
+                            || divisionai.ShipCapabilityProfile.isCombatFreighterHull(pureShepherd.getHullSpec())
+                            || divisionai.ShipCapabilityProfile.isCombatFreighterHull(pureKite.getHullSpec())) {
+                        System.out.println("FAIL isCombatFreighterHull misclassified civgrade conversion or pure civilian hull");
+                        return false;
+                    }
+
+                    // 2) Live campaign fleet round-trip: ON -> Reset & Auto-Form -> leave 1 Lasher unassigned ->
+                    //    toggle OFF (moves Atlas Mk.II, Mule x2, Buffalo Mk.II into Service Group, keeps Eagles & unassigned Lasher untouched) ->
+                    //    toggle ON (returns Atlas Mk.II, Mule x2, Buffalo Mk.II to warship divisions; pure Buffalo stays in Service Group; Atlas Mk.II sorts above Cruiser!).
+                    liveMembers.clear();
+                    livePdata.clear();
+                    com.fs.starfarer.api.fleet.FleetMemberAPI cfMule0 = createCustomMockMemberWithCivgrade(
+                            "cf_mule_0", "Mule", com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER,
+                            false, "Combat Freighter",
+                            java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class),
+                            java.util.Collections.emptyList());
+                    com.fs.starfarer.api.fleet.FleetMemberAPI cfMule1 = createCustomMockMemberWithCivgrade(
+                            "cf_mule_1", "Mule", com.fs.starfarer.api.combat.ShipAPI.HullSize.DESTROYER,
+                            false, "Combat Freighter",
+                            java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class),
+                            java.util.Collections.emptyList());
+                    liveMembers.add(atlasMk2);
+                    liveMembers.add(createCustomMockMemberWithHullId(
+                            "cf_eagle_0", "eagle", "eagle", "Eagle",
+                            com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 22f, true));
+                    liveMembers.add(createCustomMockMemberWithHullId(
+                            "cf_eagle_1", "eagle", "eagle", "Eagle",
+                            com.fs.starfarer.api.combat.ShipAPI.HullSize.CRUISER, 22f, false));
+                    liveMembers.add(cfMule0);
+                    liveMembers.add(cfMule1);
+                    liveMembers.add(buffaloMk2);
+                    liveMembers.add(pureBuffalo);
+                    divisionai.PermanentDivisionManager.resetAndAutoFormFromPlayerFleet();
+
+                    // Add an intentionally unassigned Lasher after initial auto-form
+                    com.fs.starfarer.api.fleet.FleetMemberAPI unassignedLasher = createCustomMockMemberWithHullId(
+                            "cf_unassigned_lasher", "lasher", "lasher", "Lasher",
+                            com.fs.starfarer.api.combat.ShipAPI.HullSize.FRIGATE, 5f, false);
+                    liveMembers.add(unassignedLasher);
+
+                    List<divisionai.PermanentDivisionManager.PermanentDivisionSpec> divsOnInit =
+                            divisionai.PermanentDivisionManager.getNonEmptyPermanentDivisions();
+                    if (divsOnInit.isEmpty() || divsOnInit.get(0).archetype != divisionai.DivisionModel.DivisionArchetype.BATTLESHIP_DIVISION) {
+                        System.out.println("FAIL Atlas Mk.II Battleship Division did not sort to top rank when As Warships is ON: "
+                                + (divsOnInit.isEmpty() ? "empty" : divsOnInit.get(0).archetype));
+                        return false;
+                    }
+
+                    // Toggle OFF live
+                    divisionai.PermanentDivisionManager.updateCombatFreightersAsWarships(false);
+                    List<divisionai.PermanentDivisionManager.PermanentDivisionSpec> divsAfterOff =
+                            divisionai.PermanentDivisionManager.getNonEmptyPermanentDivisions();
+                    int svcCountOff = 0;
+                    boolean foundCombatFreighterInWarshipDiv = false;
+                    boolean eagleDivIntact = false;
+                    boolean lasherStillUnassigned = true;
+                    for (divisionai.PermanentDivisionManager.PermanentDivisionSpec sp : divsAfterOff) {
+                        if (sp.memberIds.contains("cf_unassigned_lasher")) lasherStillUnassigned = false;
+                        if (sp.archetype == divisionai.DivisionModel.DivisionArchetype.SERVICE_GROUP) {
+                            svcCountOff += sp.memberIds.size();
+                        } else {
+                            if (sp.memberIds.contains("cf_eagle_0") && sp.memberIds.contains("cf_eagle_1")) {
+                                eagleDivIntact = true;
+                            }
+                            if (sp.memberIds.contains("cf_atlas2")
+                                    || sp.memberIds.contains("cf_mule_0")
+                                    || sp.memberIds.contains("cf_mule_1")
+                                    || sp.memberIds.contains("cf_buf2")) {
+                                foundCombatFreighterInWarshipDiv = true;
+                            }
+                        }
+                    }
+                    if (foundCombatFreighterInWarshipDiv || svcCountOff != 5 || !eagleDivIntact || !lasherStillUnassigned) {
+                        System.out.println("FAIL Live toggle OFF reconciliation failed: cfInWarship="
+                                + foundCombatFreighterInWarshipDiv + " svcCount=" + svcCountOff
+                                + " eagleIntact=" + eagleDivIntact + " lasherUnassigned=" + lasherStillUnassigned);
+                        return false;
+                    }
+
+                    // Toggle ON live -> combat freighters leave Service Group back into warship divisions; pure Buffalo stays in Service Group; Lasher stays unassigned!
+                    divisionai.PermanentDivisionManager.updateCombatFreightersAsWarships(true);
+                    List<divisionai.PermanentDivisionManager.PermanentDivisionSpec> divsAfterOn =
+                            divisionai.PermanentDivisionManager.getNonEmptyPermanentDivisions();
+                    int svcCountOn = 0;
+                    int cfInWarshipOn = 0;
+                    for (divisionai.PermanentDivisionManager.PermanentDivisionSpec sp : divsAfterOn) {
+                        if (sp.memberIds.contains("cf_unassigned_lasher")) lasherStillUnassigned = false;
+                        if (sp.archetype == divisionai.DivisionModel.DivisionArchetype.SERVICE_GROUP) {
+                            svcCountOn += sp.memberIds.size();
+                        } else {
+                            for (String mid : sp.memberIds) {
+                                if (mid.equals("cf_atlas2") || mid.equals("cf_mule_0")
+                                        || mid.equals("cf_mule_1") || mid.equals("cf_buf2")) {
+                                    cfInWarshipOn++;
+                                }
+                            }
+                        }
+                    }
+                    if (svcCountOn != 1 || cfInWarshipOn != 4 || !lasherStillUnassigned
+                            || divsAfterOn.get(0).archetype != divisionai.DivisionModel.DivisionArchetype.BATTLESHIP_DIVISION) {
+                        System.out.println("FAIL Live toggle ON reconciliation failed: svcCountOn=" + svcCountOn
+                                + " cfInWarshipOn=" + cfInWarshipOn + " lasherUnassigned=" + lasherStillUnassigned
+                                + " topArch=" + (divsAfterOn.isEmpty() ? "empty" : divsAfterOn.get(0).archetype));
+                        return false;
+                    }
+                } finally {
+                    com.fs.starfarer.api.Global.setSector(prevSec);
+                }
+            }
+
             // Test resetFleetIntro + TOUR_OPEN_CODEX action
             divisionai.DivisionAISharedData.resetFleetIntro();
             if (divisionai.DivisionAISharedData.isFleetIntroCompleted()) {
@@ -3901,13 +4178,16 @@ public class StarsectorUISimulator {
         }
     }
 
-    private static com.fs.starfarer.api.fleet.FleetMemberAPI createCustomMockMember(
-            final String id,
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createCustomMockMemberWithHullId(
+            final String memberId,
+            final String baseHullId,
+            final String exactHullId,
             final String hullName,
             final com.fs.starfarer.api.combat.ShipAPI.HullSize hullSize,
-            final boolean isCivilian,
-            final String designation,
-            final java.util.EnumSet<com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints> hints) {
+            final float dp,
+            final boolean hasOfficer) {
+        final java.util.EnumSet<com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints> hints =
+                java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class);
         final com.fs.starfarer.api.combat.ShipHullSpecAPI spec =
                 (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
                         com.fs.starfarer.api.combat.ShipHullSpecAPI.class.getClassLoader(),
@@ -3916,9 +4196,103 @@ public class StarsectorUISimulator {
                             String n = m.getName();
                             if ("getHullSize".equals(n)) return hullSize;
                             if ("getHullName".equals(n) || "getHullNameWithDashClass".equals(n)) return hullName;
-                            if ("getBaseHullId".equals(n) || "getHullId".equals(n)) return id;
+                            if ("getBaseHullId".equals(n)) return baseHullId;
+                            if ("getHullId".equals(n)) return exactHullId;
+                            if ("getDesignation".equals(n)) return "Cruiser";
+                            if ("getHints".equals(n)) return hints;
+                            if ("getFighterBays".equals(n)) return 0;
+                            if ("isPhase".equals(n)) return Boolean.FALSE;
+                            if ("getAllWeaponSlotsCopy".equals(n)) return java.util.Collections.emptyList();
+                            if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                            if (m.getReturnType() == int.class) return 0;
+                            if (m.getReturnType() == float.class) return 0f;
+                            return null;
+                        });
+        final com.fs.starfarer.api.characters.PersonAPI officer;
+        if (hasOfficer) {
+            final com.fs.starfarer.api.characters.MutableCharacterStatsAPI stats =
+                    (com.fs.starfarer.api.characters.MutableCharacterStatsAPI) Proxy.newProxyInstance(
+                            com.fs.starfarer.api.characters.MutableCharacterStatsAPI.class.getClassLoader(),
+                            new Class<?>[]{com.fs.starfarer.api.characters.MutableCharacterStatsAPI.class},
+                            (p, m, a) -> {
+                                if ("getLevel".equals(m.getName())) return 5;
+                                if ("getSkillsCopy".equals(m.getName())) return java.util.Collections.emptyList();
+                                if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                                if (m.getReturnType() == int.class) return 0;
+                                if (m.getReturnType() == float.class) return 0f;
+                                return null;
+                            });
+            officer = (com.fs.starfarer.api.characters.PersonAPI) Proxy.newProxyInstance(
+                    com.fs.starfarer.api.characters.PersonAPI.class.getClassLoader(),
+                    new Class<?>[]{com.fs.starfarer.api.characters.PersonAPI.class},
+                    (p, m, a) -> {
+                        String n = m.getName();
+                        if ("getId".equals(n)) return "off_" + memberId;
+                        if ("isDefault".equals(n)) return Boolean.FALSE;
+                        if ("isAICore".equals(n)) return Boolean.FALSE;
+                        if ("getStats".equals(n)) return stats;
+                        if ("getNameString".equals(n)) return "Capt. " + memberId;
+                        if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                        if (m.getReturnType() == int.class) return 0;
+                        if (m.getReturnType() == float.class) return 0f;
+                        return null;
+                    });
+        } else {
+            officer = null;
+        }
+        return (com.fs.starfarer.api.fleet.FleetMemberAPI) Proxy.newProxyInstance(
+                com.fs.starfarer.api.fleet.FleetMemberAPI.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getId".equals(n)) return memberId;
+                    if ("getShipName".equals(n)) return "ISS " + hullName + " " + memberId;
+                    if ("getHullId".equals(n)) return exactHullId;
+                    if ("getHullSpec".equals(n)) return spec;
+                    if ("getCaptain".equals(n)) return officer;
+                    if ("isCivilian".equals(n)) return Boolean.FALSE;
+                    if ("getDeploymentPointsCost".equals(n) || "getUnmodifiedDeploymentPointsCost".equals(n)) return dp;
+                    if ("getFleetPointCost".equals(n)) return Math.max(4, Math.round(dp));
+                    if ("getNumFlightDecks".equals(n)) return 0;
+                    if (m.getReturnType() == boolean.class) return Boolean.FALSE;
+                    if (m.getReturnType() == int.class) return 0;
+                    if (m.getReturnType() == float.class) return 0f;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createCustomMockMember(
+            final String id,
+            final String hullName,
+            final com.fs.starfarer.api.combat.ShipAPI.HullSize hullSize,
+            final boolean isCivilian,
+            final String designation,
+            final java.util.EnumSet<com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints> hints) {
+        return createCustomMockMemberWithCivgrade(
+                id, hullName, hullSize, isCivilian, designation, hints, java.util.Collections.emptyList());
+    }
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createCustomMockMemberWithCivgrade(
+            final String id,
+            final String hullName,
+            final com.fs.starfarer.api.combat.ShipAPI.HullSize hullSize,
+            final boolean isCivilian,
+            final String designation,
+            final java.util.EnumSet<com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints> hints,
+            final java.util.List<String> builtInMods) {
+        final String baseId = id.replaceAll("_[0-9]+$", "");
+        final com.fs.starfarer.api.combat.ShipHullSpecAPI spec =
+                (com.fs.starfarer.api.combat.ShipHullSpecAPI) Proxy.newProxyInstance(
+                        com.fs.starfarer.api.combat.ShipHullSpecAPI.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getHullSize".equals(n)) return hullSize;
+                            if ("getHullName".equals(n) || "getHullNameWithDashClass".equals(n)) return hullName;
+                            if ("getBaseHullId".equals(n) || "getHullId".equals(n)) return baseId;
                             if ("getDesignation".equals(n)) return designation;
                             if ("getHints".equals(n)) return hints;
+                            if ("getBuiltInMods".equals(n)) return builtInMods;
                             if ("getFighterBays".equals(n)) return 0;
                             if ("isPhase".equals(n)) return Boolean.FALSE;
                             if ("getAllWeaponSlotsCopy".equals(n)) return java.util.Collections.emptyList();
