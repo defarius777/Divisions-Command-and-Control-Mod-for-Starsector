@@ -812,9 +812,9 @@ public class UITestHarness {
                 && cellDisabledOnlyForDestroyer
                 && "Capital".equals(AutoAssignHull.BATTLESHIP.displayName)
                 && "Capital".equals(AutoAssignHull.BATTLESHIP.shortName)
-                && "Heavy Battlecarrier Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.BATTLESHIP))
-                && "Medium Battlecarrier Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.CRUISER))
-                && "Light Battlecarrier Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.DESTROYER))
+                && "Battlecarrier Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.BATTLESHIP))
+                && "Aviation Cruiser Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.CRUISER))
+                && "Aviation Destroyer Division".equals(AutoAssignCapability.BATTLECARRIER.describeInstantiatedDivision(AutoAssignHull.DESTROYER))
                 && docDialogJava.contains("DIVISION CREATION")
                 && docDialogJava.contains("BY COMBAT ROLE")
                 && docDialogJava.contains("BY HULL CLASS")
@@ -928,9 +928,9 @@ public class UITestHarness {
                 && DoctrineDivisionType.forArchetype(null) == DoctrineDivisionType.FORCE
                 && "FORCE".equals(DivisionNomenclature.resolvePrefixBucketKey(DivisionArchetype.FORCE_DIVISION))
                 && "Force 1".equals(DivisionNomenclature.formatPlayerDivisionName(DivisionArchetype.FORCE_DIVISION, 1))
-                && "Heavy Battlecarrier Div".equals(DivisionArchetype.BATTLECARRIER_DIVISION.shortPrefix)
-                && "Medium Battlecarrier Div".equals(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION.shortPrefix)
-                && "Light Battlecarrier Div".equals(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION.shortPrefix)
+                && "Battlecarrier Div".equals(DivisionArchetype.BATTLECARRIER_DIVISION.shortPrefix)
+                && "Aviation Cruiser Div".equals(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION.shortPrefix)
+                && "Aviation Destroyer Div".equals(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION.shortPrefix)
                 && DivisionArchetype.values().length == 24
                 && DoctrineDivisionType.values().length == 24;
 

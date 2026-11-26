@@ -3813,27 +3813,30 @@ public class DivisionAITestSuite {
                         csInfo != null, deployOk, combatOk, settingsOk));
 
         // Verify all 7 obfuscated handle bridges against REAL cross-platform / cross-version Starsector JARs
-        // (macOS 0.98.5a-RC7, Linux 0.98.5a-RC7, and Windows 0.98a-RC8 if configured via lib/starsector_rc8_core_path.txt)
+        // (Windows 0.98.5a-RC9, macOS 0.98.5a-RC9, Linux 0.98.5a-RC9, and Windows 0.98a-RC8)
         List<String[]> platformEntries = new ArrayList<>();
         File coreCfg = new File("lib/starsector_core_path.txt");
         File gamesRoot = null;
         if (coreCfg.isFile()) {
             String corePath = java.nio.file.Files.readString(coreCfg.toPath(), StandardCharsets.UTF_8).trim();
             if (!corePath.isEmpty()) {
+                platformEntries.add(new String[]{"Windows 0.98.5a-RC9", corePath, "com.fs.starfarer.loading.scripts.ScriptClassLoader"});
                 File coreDir = new File(corePath);
                 if (coreDir.getParentFile() != null) {
                     gamesRoot = coreDir.getParentFile().getParentFile();
                 }
             }
         }
-        String macRc7Path = gamesRoot != null
-                ? new File(gamesRoot, "Starsector for Mac 0.98.5a-RC7/Contents/Resources/Java").getPath()
+        String macRc9Path = gamesRoot != null
+                ? (new File(gamesRoot, "Starsector for Mac 0.98.5a-RC9/Contents/Resources/Java").isDirectory()
+                        ? new File(gamesRoot, "Starsector for Mac 0.98.5a-RC9/Contents/Resources/Java").getPath()
+                        : new File(gamesRoot, "Starsector for Mac 0.95-RC9/Contents/Resources/Java").getPath())
                 : "[!] Starsector for Mac/Starsector.app/Contents/Resources/Java";
-        String linuxRc7Path = gamesRoot != null
-                ? new File(gamesRoot, "Starsector for Linux 0.98.5a-RC7").getPath()
+        String linuxRc9Path = gamesRoot != null
+                ? new File(gamesRoot, "Starsector for Linux 0.98.5a-RC9").getPath()
                 : "[!] Starsector for Linux/starsector";
-        platformEntries.add(new String[]{"macOS 0.98.5a-RC7", macRc7Path, "com.fs.starfarer.loading.scripts.ScriptClassLoader"});
-        platformEntries.add(new String[]{"Linux 0.98.5a-RC7", linuxRc7Path, "com.fs.starfarer.loading.scripts.ScriptClassLoader"});
+        platformEntries.add(new String[]{"macOS 0.98.5a-RC9", macRc9Path, "com.fs.starfarer.loading.scripts.ScriptClassLoader"});
+        platformEntries.add(new String[]{"Linux 0.98.5a-RC9", linuxRc9Path, "com.fs.starfarer.loading.scripts.ScriptClassLoader"});
         File rc8Cfg = new File("lib/starsector_rc8_core_path.txt");
         if (rc8Cfg.isFile()) {
             String rc8Path = java.nio.file.Files.readString(rc8Cfg.toPath(), StandardCharsets.UTF_8).trim();
@@ -5259,6 +5262,14 @@ public class DivisionAITestSuite {
         String uafConvoy = DivisionNomenclature.formatFactionDivisionName(
                 "uaf", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.SERVICE_GROUP, 1, null, 0L,
                 divisionai.FactionLibrary.FleetRoleCategory.MERCHANT_CONVOY);
+        String uafAvCruiser = DivisionNomenclature.formatFactionDivisionName(
+                "uaf", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, 1, null, 0L);
+        String mayasuraAvCruiser = DivisionNomenclature.formatFactionDivisionName(
+                "mayasura", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, 1, null, 0L);
+        String diableAvCruiser = DivisionNomenclature.formatFactionDivisionName(
+                "diableavionics", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, 1, null, 0L);
+        String armaAvCruiser = DivisionNomenclature.formatFactionDivisionName(
+                "armaarmatura", NomenclatureCategory.HUMAN_NAVAL, DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, 1, null, 0L);
 
         boolean factionOutputsOk = "Armada Battle Line I".equals(cgrBattle)
                 && "Warden Cruiser Squadron I".equals(cgrCruiser)
@@ -5266,7 +5277,11 @@ public class DivisionAITestSuite {
                 && "Heavy Flight Group Alpha".equals(ttCarrier)
                 && "State Cruiser Squadron 1".equals(diktatCruiser)
                 && "Reformer Battle Line I".equals(reformerBattle)
-                && "Auroran Trade Convoy 1".equals(uafConvoy);
+                && "Auroran Trade Convoy 1".equals(uafConvoy)
+                && "Auroran Aviation Cruiser Squadron 1".equals(uafAvCruiser)
+                && "Mayasuran Aviation Cruiser Squadron I".equals(mayasuraAvCruiser)
+                && "Aviation Cruiser Wing 1".equals(diableAvCruiser)
+                && "Aviation Cruiser Group 1".equals(armaAvCruiser);
 
         boolean migrationOk = "Armada Battle Line I".equals(
                 DivisionNomenclature.migrateLegacyDivisionName("Hallowed Bastion I", DivisionArchetype.BATTLESHIP_DIVISION))
@@ -5276,6 +5291,12 @@ public class DivisionAITestSuite {
                 DivisionNomenclature.migrateLegacyDivisionName("Penitent Veil I", DivisionArchetype.PHASE_DIVISION))
                 && "1st Missile Frigate Pack".equals(
                 DivisionNomenclature.migrateLegacyDivisionName("1st Bottle-Rocket Pack", DivisionArchetype.MISSILE_FRIGATE_DIVISION))
+                && "Aviation Cruiser Div 1".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("Medium Battlecarrier Div 1", DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION))
+                && "Aviation Destroyer Flotilla II".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("Light Battlecarrier Flotilla II", DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION))
+                && "Battlecarrier Div 1".equals(
+                DivisionNomenclature.migrateLegacyDivisionName("Heavy Battlecarrier Div 1", DivisionArchetype.BATTLECARRIER_DIVISION))
                 && "Task Force Chimera".equals(
                 DivisionNomenclature.migrateLegacyDivisionName("Task Force Chimera", DivisionArchetype.CRUISER_DIVISION));
 
@@ -6263,20 +6284,34 @@ public class DivisionAITestSuite {
                 && pMisAff.primaryTag == divisionai.ShipCapabilityProfile.TacticalTag.MISSILE_PHASE
                 && pMisAff.avgWeaponRange >= 1350f;
 
-        // Form divisions with default Persean/Player doctrine (all 6 new schemes ON)
-        divisionai.PermanentDivisionManager.FleetDoctrineConfig perseanDoc =
-                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("persean", null);
-        BattleGroupState perseanGroup = new BattleGroupState(1, eCmdr);
-        perseanGroup.factionId = "persean";
+        // Verify player starting defaults: Battlecarrier OFF by default (Domain/Hegemony line integration),
+        // Combat Freighters as Warships ON by default!
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig freshDefaultDoc =
+                new divisionai.PermanentDivisionManager.FleetDoctrineConfig();
+        boolean playerDefaultsOk = freshDefaultDoc.isCombatFreightersAsWarships()
+                && !freshDefaultDoc.isSchemeEnabled(
+                        divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                        divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && !freshDefaultDoc.isSchemeEnabled(
+                        divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                        divisionai.PermanentDivisionManager.AutoAssignHull.CRUISER)
+                && !freshDefaultDoc.isSchemeEnabled(
+                        divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                        divisionai.PermanentDivisionManager.AutoAssignHull.DESTROYER);
+
+        // Form divisions with UAF / Battlecarrier-enabled doctrine (all 6 specialist capabilities ON)
+        BattleGroupState bcvEnabledGroup = new BattleGroupState(1, eCmdr);
+        bcvEnabledGroup.factionId = "uaf";
         List<divisionai.ShipCapabilityProfile> fullPool = java.util.Arrays.asList(
                 pConquest, pOdyssey, pLegion, pOnslaught, pMora,
                 pMedusa, pShrieker, pHammerhead, pTempest, pDoom, pZig, pMisAff);
-        List<DivisionState> perseanDivs = divisionai.DivisionAutoFormer.formDivisionsFromPool(perseanGroup, fullPool);
+        List<DivisionState> bcvEnabledDivs = divisionai.DivisionAutoFormer.formDivisionsFromPool(bcvEnabledGroup, fullPool);
         java.util.EnumSet<DivisionArchetype> formedArchetypes = java.util.EnumSet.noneOf(DivisionArchetype.class);
-        for (DivisionState d : perseanDivs) {
+        for (DivisionState d : bcvEnabledDivs) {
             formedArchetypes.add(d.archetype);
         }
-        boolean allSixFormed = formedArchetypes.contains(DivisionArchetype.BATTLECRUISER_DIVISION)
+        boolean allSixFormed = playerDefaultsOk
+                && formedArchetypes.contains(DivisionArchetype.BATTLECRUISER_DIVISION)
                 && formedArchetypes.contains(DivisionArchetype.BATTLECARRIER_DIVISION)
                 && formedArchetypes.contains(DivisionArchetype.STRIKE_DESTROYER_DIVISION)
                 && formedArchetypes.contains(DivisionArchetype.STRIKE_FRIGATE_DIVISION)
@@ -6287,14 +6322,19 @@ public class DivisionAITestSuite {
                 && formedArchetypes.contains(DivisionArchetype.DESTROYER_DIVISION);
 
         check(bcOk && bcvOk && strikeScreenOk && phaseTypesOk && allSixFormed,
-                "6 New Division Types (BC, BCV, Strike DD/FF, Phase Cruiser, Missile Phase; Zero Phase BB) classify & auto-form cleanly",
+                "6 New Division Types (BC, BCV, Strike DD/FF, Phase Cruiser, Missile Phase; Player default BCV=OFF & CF=ON) classify & auto-form cleanly",
                 String.format(Locale.ROOT,
-                        "bcOk=%b, bcvOk=%b, strikeScreenOk=%b, phaseTypesOk=%b, allSixFormed=%b, formed=%s",
-                        bcOk, bcvOk, strikeScreenOk, phaseTypesOk, allSixFormed, formedArchetypes));
+                        "bcOk=%b, bcvOk=%b, strikeScreenOk=%b, phaseTypesOk=%b, playerDefOk=%b, allSixFormed=%b, formed=%s",
+                        bcOk, bcvOk, strikeScreenOk, phaseTypesOk, playerDefaultsOk, allSixFormed, formedArchetypes));
 
-        // 2. Verify Faction Library & Faction Doctrines: Hegemony / Iron Shell / Luddic fold BCV into Battleship Division!
+        // 2. Verify Faction Library & Lore Doctrines:
+        //    - All vanilla Starsector factions (Hegemony, Persean League, Tri-Tachyon, Sindrian Diktat, Luddic Church)
+        //      plus Iron Shell & Knights of Ludd fold Battlecarriers into gun-line Battleship Divisions!
+        //    - Modded Battlecarrier/Aviation-Cruiser navies (UAF, Mayasura, Diable Avionics, Arma Armatura) form dedicated BCV Divisions!
         divisionai.PermanentDivisionManager.FleetDoctrineConfig hegDoc =
                 divisionai.FactionFleetDoctrines.getDoctrineForFactionId("hegemony", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig perseanDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("persean", null);
         divisionai.PermanentDivisionManager.FleetDoctrineConfig ironDoc =
                 divisionai.FactionFleetDoctrines.getDoctrineForFactionId("ironshell", null);
         divisionai.PermanentDivisionManager.FleetDoctrineConfig lcDoc =
@@ -6303,8 +6343,27 @@ public class DivisionAITestSuite {
                 divisionai.FactionFleetDoctrines.getDoctrineForFactionId("knights_of_ludd", null);
         divisionai.PermanentDivisionManager.FleetDoctrineConfig ttDoc =
                 divisionai.FactionFleetDoctrines.getDoctrineForFactionId("tritachyon", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig diktatDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("sindrian_diktat", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig uafDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("uaf", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig mayasuraDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("mayasura", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig diableDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("diableavionics", null);
+        divisionai.PermanentDivisionManager.FleetDoctrineConfig armaDoc =
+                divisionai.FactionFleetDoctrines.getDoctrineForFactionId("armaarmatura", null);
 
-        boolean hegBcvDisabled = !hegDoc.isSchemeEnabled(
+        boolean vanillaBcvDisabled = !hegDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && !perseanDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && !ttDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && !diktatDoc.isSchemeEnabled(
                 divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
                 divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
                 && !ironDoc.isSchemeEnabled(
@@ -6316,10 +6375,19 @@ public class DivisionAITestSuite {
                 && !kolDoc.isSchemeEnabled(
                 divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
                 divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP);
-        boolean perseanTtBcvEnabled = perseanDoc.isSchemeEnabled(
+        boolean moddedBcvEnabled = uafDoc.isSchemeEnabled(
                 divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
                 divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
-                && ttDoc.isSchemeEnabled(
+                && uafDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.CRUISER)
+                && mayasuraDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && diableDoc.isSchemeEnabled(
+                divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
+                divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP)
+                && armaDoc.isSchemeEnabled(
                 divisionai.PermanentDivisionManager.AutoAssignCapability.BATTLECARRIER,
                 divisionai.PermanentDivisionManager.AutoAssignHull.BATTLESHIP);
 
@@ -6335,18 +6403,25 @@ public class DivisionAITestSuite {
         BattleGroupState perseanCapGroup = new BattleGroupState(1, eCmdr);
         perseanCapGroup.factionId = "persean";
         List<DivisionState> perseanFormed = divisionai.DivisionAutoFormer.formDivisionsFromPool(perseanCapGroup, hegCapLine);
-        boolean perseanSplitBcv = perseanFormed.size() == 2
-                && (perseanFormed.get(0).archetype == DivisionArchetype.BATTLECARRIER_DIVISION
-                || perseanFormed.get(1).archetype == DivisionArchetype.BATTLECARRIER_DIVISION);
+        boolean perseanUnitedBattleLine = perseanFormed.size() == 1
+                && perseanFormed.get(0).archetype == DivisionArchetype.BATTLESHIP_DIVISION
+                && perseanFormed.get(0).members.size() == 2;
 
-        check(hegBcvDisabled && perseanTtBcvEnabled && hegUnitedBattleLine && perseanSplitBcv,
-                "Faction Library & Fleet Doctrines: Hegemony/Iron Shell/Luddic fold Legion+Onslaught into 'Battle Div. I' while Cruiser-School factions form BCV Divisions",
+        BattleGroupState mayasuraCapGroup = new BattleGroupState(1, eCmdr);
+        mayasuraCapGroup.factionId = "mayasura";
+        List<DivisionState> mayasuraFormed = divisionai.DivisionAutoFormer.formDivisionsFromPool(mayasuraCapGroup, hegCapLine);
+        boolean mayasuraSplitBcv = mayasuraFormed.size() == 2
+                && (mayasuraFormed.get(0).archetype == DivisionArchetype.BATTLECARRIER_DIVISION
+                || mayasuraFormed.get(1).archetype == DivisionArchetype.BATTLECARRIER_DIVISION);
+
+        check(vanillaBcvDisabled && moddedBcvEnabled && hegUnitedBattleLine && perseanUnitedBattleLine && mayasuraSplitBcv,
+                "Faction Library & Lore Doctrines: Vanilla factions fold Battlecarriers into Battle Line while UAF/Mayasura/Diable/Arma form BCV Divisions",
                 String.format(Locale.ROOT,
-                        "hegBcvOff=%b, perseanTtBcvOn=%b, hegUnited=%b (%s, ships=%d), perseanSplit=%b (divs=%d)",
-                        hegBcvDisabled, perseanTtBcvEnabled, hegUnitedBattleLine,
+                        "vanillaBcvOff=%b, moddedBcvOn=%b, hegUnited=%b (%s, ships=%d), perseanUnited=%b, mayasuraSplit=%b (divs=%d)",
+                        vanillaBcvDisabled, moddedBcvEnabled, hegUnitedBattleLine,
                         hegFormed.isEmpty() ? "none" : hegFormed.get(0).displayName,
                         hegFormed.isEmpty() ? 0 : hegFormed.get(0).members.size(),
-                        perseanSplitBcv, perseanFormed.size()));
+                        perseanUnitedBattleLine, mayasuraSplitBcv, mayasuraFormed.size()));
 
         // 3. Verify Missile Phase + Missile Autoforge Combat AI (Standoff Salvo, Synchronized Unphase, & Autoforge Reload)
         BattleGroupState pMisGroup = new BattleGroupState(0, pCmdr);

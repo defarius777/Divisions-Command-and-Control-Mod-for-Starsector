@@ -1651,7 +1651,7 @@ public class PermanentDivisionManager {
                 LineStation.CENTER,
                 DivisionFormation.LINE_ABREAST),
         BATTLECARRIER(
-                "Heavy Battlecarrier Division",
+                "Battlecarrier Division",
                 DivisionArchetype.BATTLECARRIER_DIVISION,
                 650,
                 1220,
@@ -1662,7 +1662,7 @@ public class PermanentDivisionManager {
                 LineStation.CENTER,
                 DivisionFormation.LINE_ABREAST),
         MEDIUM_BATTLECARRIER(
-                "Medium Battlecarrier Division",
+                "Aviation Cruiser Division",
                 DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION,
                 550,
                 1120,
@@ -1673,7 +1673,7 @@ public class PermanentDivisionManager {
                 LineStation.CENTER,
                 DivisionFormation.LINE_ABREAST),
         LIGHT_BATTLECARRIER(
-                "Light Battlecarrier Division",
+                "Aviation Destroyer Division",
                 DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION,
                 475,
                 1000,
@@ -1899,7 +1899,7 @@ public class PermanentDivisionManager {
         LINE("Line Combat", "Line", "Forms standard gun-line divisions (folds into Force if OFF)."),
         STRIKE("Strike / Fast", "Strike", "Forms Battlecruiser and Strike divisions (folds into Line if OFF)."),
         MISSILE("Missile", "Missile", "Forms Missile and Torpedo divisions (folds into Line if OFF)."),
-        BATTLECARRIER("Battlecarrier", "BCV", "Forms Heavy, Medium, and Light Battlecarrier divisions (folds into Line if OFF)."),
+        BATTLECARRIER("Battlecarrier", "BCV", "Forms Battlecarrier and Aviation Cruiser/Destroyer divisions (folds into Line if OFF)."),
         CARRIER("Carrier", "Carrier", "Forms Fleet, Light, and Escort Carrier divisions (folds into Line if OFF)."),
         PHASE("Phase", "Phase", "Forms Phase Cruiser and Phase Skimmer divisions (folds into Force if OFF)."),
         MISSILE_PHASE("Missile Phase", "Msl Phase", "Forms Missile/Autoforge Phase divisions (folds into Phase if OFF)."),
@@ -1953,9 +1953,9 @@ public class PermanentDivisionManager {
                     }
                 case BATTLECARRIER:
                     switch (hull) {
-                        case BATTLESHIP: return "Heavy Battlecarrier Division";
-                        case CRUISER:    return "Medium Battlecarrier Division";
-                        default:         return "Light Battlecarrier Division";
+                        case BATTLESHIP: return "Battlecarrier Division";
+                        case CRUISER:    return "Aviation Cruiser Division";
+                        default:         return "Aviation Destroyer Division";
                     }
                 case CARRIER:
                     switch (hull) {
@@ -2615,9 +2615,10 @@ public class PermanentDivisionManager {
                 maxRammingSlotsByType.put(dt, defaultMaxRammingSlotsFor(dt));
             }
             for (AutoAssignCapability cap : AutoAssignCapability.values()) {
+                boolean defaultOn = (cap != AutoAssignCapability.BATTLECARRIER);
                 for (AutoAssignHull hull : AutoAssignHull.values()) {
                     if (cap.supportsHull(hull)) {
-                        enabledAutoSchemeMatrix.put(schemeKey(cap, hull), Boolean.TRUE);
+                        enabledAutoSchemeMatrix.put(schemeKey(cap, hull), Boolean.valueOf(defaultOn));
                     }
                 }
             }

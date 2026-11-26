@@ -205,12 +205,13 @@ public final class FactionLibrary {
                 new EnumMap<>(FleetRoleCategory.class);
 
         // Doctrinal division-organization flags (configurable via division_faction_library.json or submod API):
-        //  - separatesBattlecarriers: if false (e.g. Hegemony, XIV, Iron Shell, Luddic Church), capital battlecarriers
-        //    such as the Legion stand on the line of battle inside Battleship Divisions rather than separate BCV divisions.
+        //  - separatesBattlecarriers: false by default across Domain, Hegemony, Cruiser-School, Corporate, and Frontier
+        //    factions (capital/cruiser/destroyer battlecarriers stand in standard gun-line divisions of their hull class);
+        //    set true only for modded Aviation-Cruiser / Battlecarrier-centric navies (UAF, Mayasura, Diable, Arma Armatura).
         //  - separatesBattlecruisers: controls whether fast capitals / Battlecruisers form dedicated Battlecruiser Divisions.
         //  - separatesStrikeScreen: controls whether fast attack Destroyers & Frigates split into Strike Destroyer / Strike Frigate Divisions.
         //  - separatesPhaseSpecialists: controls whether heavy Phase Cruisers & Missile Phase ships form specialist divisions.
-        public boolean separatesBattlecarriers = true;
+        public boolean separatesBattlecarriers = false;
         public boolean separatesBattlecruisers = true;
         public boolean separatesStrikeScreen = true;
         public boolean separatesPhaseSpecialists = true;
@@ -950,8 +951,8 @@ public final class FactionLibrary {
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.BATTLECRUISER_DIVISION, "Convoy Fast Capital Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, "Heavy Convoy Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Convoy Battlecarrier Escort");
-        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, "Convoy Battlecarrier Escort");
-        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, "Convoy Battlecarrier Escort");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, "Convoy Aviation Cruiser Escort");
+        DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, "Convoy Aviation Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.FLEET_CARRIER_DIVISION, "Convoy Carrier Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.LIGHT_CARRIER_DIVISION, "Convoy Carrier Escort");
         DEFAULT_MERCHANT_PREFIXES.put(DivisionArchetype.ESCORT_CARRIER_DIVISION, "Convoy Escort Wing");
@@ -975,9 +976,9 @@ public final class FactionLibrary {
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.BATTLESHIP_DIVISION, "Heavy Raider Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.BATTLECRUISER_DIVISION, "Fast Raider Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, "Heavy Raider Group");
-        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Heavy Raider Carrier Group");
-        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, "Raider Battlecarrier Group");
-        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, "Runner Battlecarrier Group");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Raider Battlecarrier Group");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, "Raider Aviation Cruiser Group");
+        DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, "Runner Aviation Escort");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.FLEET_CARRIER_DIVISION, "Raider Carrier Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.LIGHT_CARRIER_DIVISION, "Raider Carrier Group");
         DEFAULT_SMUGGLER_PREFIXES.put(DivisionArchetype.ESCORT_CARRIER_DIVISION, "Runner Carrier Group");
@@ -1001,9 +1002,9 @@ public final class FactionLibrary {
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.BATTLESHIP_DIVISION, "Heavy Salvage Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.BATTLECRUISER_DIVISION, "Fast Salvage Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MISSILE_BATTLESHIP_DIVISION, "Heavy Salvage Guard");
-        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Heavy Salvage Carrier Guard");
-        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, "Salvage Battlecarrier Guard");
-        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, "Survey Battlecarrier Guard");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.BATTLECARRIER_DIVISION, "Salvage Battlecarrier Guard");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.MEDIUM_BATTLECARRIER_DIVISION, "Salvage Aviation Cruiser Guard");
+        DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.LIGHT_BATTLECARRIER_DIVISION, "Survey Aviation Guard");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.FLEET_CARRIER_DIVISION, "Salvage Carrier Group");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.LIGHT_CARRIER_DIVISION, "Salvage Carrier Group");
         DEFAULT_SCAVENGER_PREFIXES.put(DivisionArchetype.ESCORT_CARRIER_DIVISION, "Survey Carrier Group");

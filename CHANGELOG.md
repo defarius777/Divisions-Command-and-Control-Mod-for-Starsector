@@ -4,6 +4,35 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.25] — 2026-11-26 (Starsector `0.98.5a-RC9` & `0.98a-RC8`)
+
+### Added
+- **Better Combat & Variable Combat Physics Integration (`CombatPhysicsProfile`, `DivisionEngineTelegraph`, `DivisionCaptainAIDelegate`, `DivisionAdmiralDelegate`):**
+  - Generic live-spec `CombatPhysicsProfile` automatically detects overhaul combat physics (including **Better Combat** `3x+` weapon/missile/fighter envelopes, projectile dropoff, `3x` broadphase vs. physical bounds, and high-velocity kinematics) and scales intra-division station spacing, inter-division intervals, gun/missile/carrier standoffs, TSFC/Warroom overlays, and save-load defaults multiplicatively — with clean bidirectional **Better Combat <-> Vanilla** save migration that preserves manual player overrides.
+  - Added a 60 Hz **Ship Captain AI (`DivisionCaptainAIDelegate`)** & **Naval Engine Order Telegraph (`1/3`, `1/2`, `Full`, `Flank`, `Auto`)** with Newtonian braking-distance trimming, incoming missile/airstrike salvo evasion & damper use, beam-dropoff autofire rescue, and burn/vent safety vetoes, plus **Division-Cohesive AI Deployment (`DivisionAdmiralDelegate`)** so NPC admirals deploy cohesive divisions led by their Division Leaders.
+- **24 Active Division Archetypes (`Battlecarrier`, `Aviation Cruiser`, `Aviation Destroyer`), `0.98a` Codex Pages & Soft Fleet Intro Tour:**
+  - Expanded division archetypes from 22 to **24**, introducing dedicated **Battlecarrier Division** (Capital), **Aviation Cruiser Division** (Cruiser), and **Aviation Destroyer Division** (Destroyer) roles alongside a redesigned **Division Creation** matrix (`By Combat Role` x `By Hull Class`) in `Fleet Doctrine`.
+  - Added **6 native `0.98a` `CodexEntryV2` manual pages** (with live `F2` context links from campaign dialogs) and a non-blocking **Soft Fleet Intro Tour** on the Campaign Fleet (`F`) screen with Galatia/tutorial modal conflict guards.
+- **Starsector `0.98.5a-RC9` & `0.98a-RC8` Cross-Platform Compatibility:**
+  - Verified all 7 zero-reflection `ObfuscatedBytecodeBridge` + `MethodHandles` bridges across **Windows, macOS, and Linux `0.98.5a-RC9`** and **`0.98a-RC8`** (`ScriptClassLoader` sandbox + full constant-pool linkage checks).
+
+### Changed & Improved
+- **Lore-Grounded Battlecarrier Doctrine Audit & Military-First Nomenclature Pass:**
+  - Aligned starting player defaults with Domain/Hegemony naval organization: **Battlecarrier** division splitting is **`OFF` by default** in `Division Creation` (folding `Legion`s and hybrid hulls into gun-line divisions out of the box, 1-click toggleable `ON` globally or per hull class), and **`Combat Freighters as Warships`** is **`ON` by default**.
+  - Audited canonical and modded lore across all **38 faction groups** (`division_faction_library.json` & `division_faction_doctrines.json`): vanilla factions fold battlecarriers into standard battle lines or carrier wings, while canonically battlecarrier/aviation-cruiser-centric modded navies (**UAF**, **Royal November**, **Mayasuran Navy**, **Diable Avionics**, **Arma Armatura**) field dedicated **Battlecarrier**, **Aviation Cruiser**, and **Aviation Destroyer** formations.
+  - Completed a military-first, cultural-second nomenclature sweep across all 8 player presets, 38 faction libraries, and legacy save migrations (`Battlecarrier` / `Aviation Cruiser` / `Aviation Destroyer`), and overhauled UI copy across `FleetDoctrineDialog` and `DivisionConfigureSubscreen` in plain, readable English (folding redundant `Posture` bars cleanly into `Mission`).
+- **Same-Hull-First Auto-Assign, Untethered First-Strike Recon & Linear Warfare Parity:**
+  - Updated `Auto-Assign` and division formation to group identical/canonical hull families together first up to hull limits before mixing hull types.
+  - Untangled C2 decision chains (`Scenarios 38–45`): untethered opening Fog-of-War recon & Search-and-Destroy first strikes, three-tier bow/broadside combat bearing discipline, smooth line wheeling, shielded backout, frigate-spam de-skewing, explicit OTC flagship precedence, Linear Warfare battle-line parity, and Main-Body-anchored carrier stations.
+
+### Fixed
+- **`"Combat Freighters as Warships"` Live Switch & `civgrade` Warship Conversions:**
+  - Detected built-in `"civgrade"` warship conversions (`Buffalo Mk.II`, `Venture`, `Prometheus Mk.II`, `Atlas Mk.II`, `Colossus Mk.II`/`Mk.III`, `Mudskipper Mk.II`) and modded armed freighters/tankers/liners with zero false positives on pure civilians; toggling the switch in `Division Creation` now immediately reconciles existing player divisions between warship divisions and `Service Groups`, sorts `Atlas Mk.II` divisions at capital warship rank, and routes mid-battle reinforcements accurately.
+- **Dynamic Battle Music & 60 Hz / 10 Hz Frame-Budget Optimizations:**
+  - Fixed live dynamic battle music layer triggering and optimized 60 Hz / 10 Hz / 2 Hz C2 & TSFC frame budgets (`<0.7 ms` avg across 100 ships, zero per-frame combat list copies).
+
+---
+
 ## [v1.2.0a] — 2026-11-18 (Starsector `0.98.5a-RC7` & `0.98a-RC8`)
 
 ### Fixed
