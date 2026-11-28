@@ -4,6 +4,19 @@ All notable changes to **Divisions: Command and Control** are documented in this
 
 ---
 
+## [v1.25a] — 2026-11-28 (Starsector `0.98.5a-RC9` & `0.98a-RC8`)
+
+### Fixed
+- **Cohesive AI Deployment Soft-Lock & Reinforcement Starvation Hardening (`DivisionDeploymentPlanner`, `DivisionDeploymentDialogOrganizer`):**
+  - **Wingless `CARRIER` Hull Deadlock Fix:** Partitioned `VanillaWheelBucket` across all 18 disjoint `(hullSize, isCarrier, hasFittedWings, isCivilian)` combinations isomorphic to vanilla `admiral.G`, fixing a reserve/initial deployment deadlock when modded drone ships (`ShipTypeHints.CARRIER` with `0` fighter bays, e.g. **Knights of Ludd** `zea_dawn_xuangui`) or empty-bay carriers shared reserves with standard combat hulls.
+  - **Anti-Phase-Cheese Civilian Wheel Rewrite Fix:** Split civilian reserve buckets by hull class (`Capital`, `Cruiser`, `Destroyer`, `Frigate`) so Civilian Frigates never block Civilian Destroyers/Cruisers/Capitals when vanilla's anti-phase-cheese detector rewrites `FRIGATE` wheel slots to `DESTROYER`.
+  - **Allied Pursuit `CR <= 10%` Parity:** Matched vanilla `admiral.G`'s `CR <= 10%` filter on Allied AI fleets in Pursuit battles (`ATTACK` vs `ESCAPE`) so low-CR allied wingmen never block deployable `10%–39%` CR allied ships.
+  - **Starsector `0.98.5a-RC9` `AdmiralAIConfig.softDeploymentLimits` Parity:** Added zero-reflection `MethodHandles.publicLookup()` support for `0.98.5a-RC9`'s new `softDeploymentLimits` and `softDeploymentLimitFilters` (such as Threat `fabricator_unit` caps) so soft-capped hulls in active divisions never block uncapped capitals.
+  - **Orbital Station & Mixed-Division Reinforcement Batching Fix:** Excluded `isStation()` DP and mid-battle-undeployable division partners from the 2-ship Cruiser/Capital trickle-batching guard so high-DP Star Fortresses/Battlestations never starve mobile Cruiser/Capital reinforcements.
+  - **Mod Boss `AdmiralPluginDelegate` Chaining & Circuit-Breaker Failsafe:** Preserved and chained upstream mod `AdmiralPluginDelegate`s (such as **Ship Mastery System** Remote Beacon defenders) with peer pre-filtering to prevent mutual vetoes, added a stateful consecutive peer-veto circuit breaker (`fail-open`) so unforeseen modded deployment rules can never stall a battle, and added defensive tail preservation on player `reserveMembersList` re-layouts.
+
+---
+
 ## [v1.25] — 2026-11-26 (Starsector `0.98.5a-RC9` & `0.98a-RC8`)
 
 ### Added

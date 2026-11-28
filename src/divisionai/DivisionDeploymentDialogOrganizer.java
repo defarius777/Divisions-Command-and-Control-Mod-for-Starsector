@@ -1180,7 +1180,16 @@ public class DivisionDeploymentDialogOrganizer {
             scrollerClampOffsetHandle.invoke(scroller);
         }
 
-        // 5. Sync reserveMembersList order to match the division row order (only undeployed reserve ships!)
+        // 5. Sync reserveMembersList order to match the division row order (only undeployed reserve ships!),
+        //    while defensively preserving any non-null member (e.g. transient buttonless/ally entry) at the tail
+        //    so reserveMembersList can never lose an item.
+        if (reserveMembersList != null) {
+            for (FleetMemberAPI existing : reserveMembersList) {
+                if (existing != null && !orderedReserveMembers.contains(existing)) {
+                    orderedReserveMembers.add(existing);
+                }
+            }
+        }
         indexedReserveMembers.addAll(orderedReserveMembers);
         this.lastIndexedReserveMembers = indexedReserveMembers;
         reserveMembersList.clear();

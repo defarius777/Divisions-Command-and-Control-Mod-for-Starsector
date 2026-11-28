@@ -21,7 +21,7 @@ public class DivisionAIModPlugin extends BaseModPlugin {
         }
         DivisionAISettings.captureBaselineFleetAndBattleSettings();
         DivisionAISettings.applyFleetAndBattleSizeOverrides();
-        Global.getLogger(DivisionAIModPlugin.class).info("Divisions: Command and Control v1.25 loaded: Conduct of Battle, 24 Division Archetypes, Campaign Permanent Divisions, Faction Division Record Tables, Cultural Nomenclature & Battlespace Routing active.");
+        Global.getLogger(DivisionAIModPlugin.class).info("Divisions: Command and Control v1.25a loaded: Conduct of Battle, 24 Division Archetypes, Campaign Permanent Divisions, Faction Division Record Tables, Cultural Nomenclature & Battlespace Routing active.");
     }
 
     @Override

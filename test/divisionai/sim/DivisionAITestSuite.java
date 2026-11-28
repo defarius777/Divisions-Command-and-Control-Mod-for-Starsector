@@ -115,6 +115,7 @@ public class DivisionAITestSuite {
         testC2ChainUntanglingAndUntetheredFirstStrike();
         testSddPropertyFuzzMusicAnd60HzPerfSpecs();
         testLinearWarfareBattleLineOtcPrecedenceAndMainBodyCarriers();
+        testDeploymentSoftLockHardeningAndRc9Compatibility();
         testZeroReflectionInCompiledJar();
 
         File replayOut = new File("build/sim_replay.html");
@@ -12323,6 +12324,414 @@ public class DivisionAITestSuite {
                     if (rt == int.class) return 0;
                     return null;
                 });
+    }
+
+
+    private static com.fs.starfarer.api.fleet.FleetMemberAPI createDeployAuditMemberMock(
+            final String id,
+            final String baseHullId,
+            final HullSize hullSize,
+            final boolean isCarrier,
+            final boolean hasFittedWings,
+            final boolean isCivilian,
+            final boolean isStation,
+            final boolean isAlly,
+            final float dpCost,
+            final float cr) {
+        final com.fs.starfarer.api.fleet.RepairTrackerAPI rep =
+                (com.fs.starfarer.api.fleet.RepairTrackerAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        DivisionAITestSuite.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.fleet.RepairTrackerAPI.class},
+                        (p, m, a) -> "getCR".equals(m.getName()) ? cr : 0f);
+        final com.fs.starfarer.api.combat.ShipHullSpecAPI hullSpec =
+                (com.fs.starfarer.api.combat.ShipHullSpecAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        DivisionAITestSuite.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipHullSpecAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getBaseHullId".equals(n) || "getHullId".equals(n)) return baseHullId;
+                            if ("getHullSize".equals(n)) return hullSize;
+                            if ("getHints".equals(n)) return java.util.EnumSet.noneOf(com.fs.starfarer.api.combat.ShipHullSpecAPI.ShipTypeHints.class);
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == float.class) return 0f;
+                            if (rt == int.class) return 0;
+                            return null;
+                        });
+        final List<String> wings = hasFittedWings
+                ? java.util.Collections.singletonList("broadsword_wing")
+                : java.util.Collections.<String>emptyList();
+        final com.fs.starfarer.api.combat.ShipVariantAPI variant =
+                (com.fs.starfarer.api.combat.ShipVariantAPI) java.lang.reflect.Proxy.newProxyInstance(
+                        DivisionAITestSuite.class.getClassLoader(),
+                        new Class<?>[]{com.fs.starfarer.api.combat.ShipVariantAPI.class},
+                        (p, m, a) -> {
+                            String n = m.getName();
+                            if ("getFittedWings".equals(n) || "getWings".equals(n)) return wings;
+                            if ("getHullSpec".equals(n)) return hullSpec;
+                            if ("getHullMods".equals(n)) return java.util.Collections.emptyList();
+                            Class<?> rt = m.getReturnType();
+                            if (rt == boolean.class) return false;
+                            if (rt == float.class) return 0f;
+                            if (rt == int.class) return 0;
+                            return null;
+                        });
+        return (com.fs.starfarer.api.fleet.FleetMemberAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.fleet.FleetMemberAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("equals".equals(n)) return p == (a != null && a.length > 0 ? a[0] : null);
+                    if ("hashCode".equals(n)) return System.identityHashCode(p);
+                    if ("getId".equals(n)) return id;
+                    if ("getHullId".equals(n)) return baseHullId;
+                    if ("getHullSpec".equals(n)) return hullSpec;
+                    if ("getVariant".equals(n)) return variant;
+                    if ("getRepairTracker".equals(n)) return rep;
+                    if ("getDeploymentPointsCost".equals(n)) return dpCost;
+                    if ("getFleetPointCost".equals(n)) return Math.round(dpCost);
+                    if ("isCarrier".equals(n)) return isCarrier;
+                    if ("isCivilian".equals(n)) return isCivilian;
+                    if ("isStation".equals(n)) return isStation;
+                    if ("isAlly".equals(n)) return isAlly;
+                    if ("isCapital".equals(n)) return hullSize == HullSize.CAPITAL_SHIP;
+                    if ("isCruiser".equals(n)) return hullSize == HullSize.CRUISER;
+                    if ("isDestroyer".equals(n)) return hullSize == HullSize.DESTROYER;
+                    if ("isFrigate".equals(n)) return hullSize == HullSize.FRIGATE;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    private static com.fs.starfarer.api.combat.CombatFleetManagerAPI createDeployAuditFleetManagerMock(
+            final int owner,
+            final com.fs.starfarer.api.fleet.FleetGoal goal,
+            final int[] maxDp,
+            final int[] curDp,
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> deployed,
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> reserves) {
+        return (com.fs.starfarer.api.combat.CombatFleetManagerAPI) java.lang.reflect.Proxy.newProxyInstance(
+                DivisionAITestSuite.class.getClassLoader(),
+                new Class<?>[]{com.fs.starfarer.api.combat.CombatFleetManagerAPI.class},
+                (p, m, a) -> {
+                    String n = m.getName();
+                    if ("getOwner".equals(n)) return owner;
+                    if ("getGoal".equals(n)) return goal;
+                    if ("getMaxStrength".equals(n)) return maxDp[0];
+                    if ("getCurrStrength".equals(n)) return curDp[0];
+                    if ("getDeployedCopy".equals(n)) return deployed;
+                    if ("getReservesCopy".equals(n)) return reserves;
+                    Class<?> rt = m.getReturnType();
+                    if (rt == boolean.class) return false;
+                    if (rt == float.class) return 0f;
+                    if (rt == int.class) return 0;
+                    return null;
+                });
+    }
+
+    /**
+     * Regression suite for all 6 AI deployment soft-lock / starvation vectors & Starsector 0.98.5a-RC9 parity:
+     *  1. Duskborne Nightmare Battle #8/#9 Repro: 5x wingless CARRIER destroyers (zea_dawn_xuangui) + 1x normal
+     *     destroyer (zea_dusk_shiryo #13 Redemption) under vanilla admiral.G's `onlyCarriersOrCivs` gate.
+     *  2. Anti-Phase-Cheese Civilian Wheel Rewrite: 0 FRIGATE slots on wheel while Civilian Frigate division
+     *     outscores Civilian Destroyer division (partitioned by hull size so Phaeton deploys immediately).
+     *  3. Allied Pursuit `CR <= 0.10f` Gate: <10% CR wingman in committed allied division never blocks 35% CR peer.
+     *  4. Orbital Station High-DP Non-Starvation & Mixed-Division Non-Deployable Partner Non-Starvation.
+     *  5. Starsector 0.98.5a-RC9 `AdmiralAIConfig.softDeploymentLimits` (`fabricator_unit -> 2`) parity.
+     *  6. Upstream mod `AdmiralPluginDelegate` chaining (`ShipMasterySystem` beacon boss) + stateful circuit breaker.
+     */
+    private static void testDeploymentSoftLockHardeningAndRc9Compatibility() {
+        System.out.println("\n--- Deployment Anti-Soft-Lock Hardening & Starsector 0.98.5a-RC9 Compatibility ---");
+        try {
+            divisionai.DivisionDeploymentPlanner.resetForNewBattle();
+
+            // 1. Live Duskborne Repro: 5x wingless CARRIER Destroyers + 1x normal Destroyer (#13 Redemption)
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> duskDeployed = new ArrayList<>();
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> duskReserves = new ArrayList<>();
+            java.util.Map<String, divisionai.PermanentDivisionManager.PermanentDivisionSpec> duskRoster = new java.util.HashMap<>();
+
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec xuanguiDiv1 =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("dusk_xg_div1", "1st Drone Div", DivisionArchetype.DESTROYER_DIVISION);
+            for (int i = 1; i <= 4; i++) {
+                String id = "xg_" + i;
+                if (i == 1) xuanguiDiv1.flagshipMemberId = id;
+                xuanguiDiv1.memberIds.add(id);
+                duskReserves.add(createDeployAuditMemberMock(id, "zea_dawn_xuangui", HullSize.DESTROYER, true, false, false, false, false, 12f, 0.70f));
+                duskRoster.put(id, xuanguiDiv1);
+            }
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec xuanguiDiv2 =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("dusk_xg_div2", "2nd Drone Div", DivisionArchetype.DESTROYER_DIVISION);
+            xuanguiDiv2.flagshipMemberId = "xg_5";
+            xuanguiDiv2.memberIds.add("xg_5");
+            duskReserves.add(createDeployAuditMemberMock("xg_5", "zea_dawn_xuangui", HullSize.DESTROYER, true, false, false, false, false, 12f, 0.70f));
+            duskRoster.put("xg_5", xuanguiDiv2);
+
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec shiryoDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("dusk_sh_div", "13th Strike Div", DivisionArchetype.DESTROYER_DIVISION);
+            shiryoDiv.flagshipMemberId = "shiryo_13";
+            shiryoDiv.memberIds.add("shiryo_13");
+            com.fs.starfarer.api.fleet.FleetMemberAPI redemption = createDeployAuditMemberMock(
+                    "shiryo_13", "zea_dusk_shiryo", HullSize.DESTROYER, false, false, false, false, false, 13f, 0.70f);
+            duskReserves.add(redemption);
+            duskRoster.put("shiryo_13", shiryoDiv);
+
+            final int[] duskMaxDp = {240};
+            final int[] duskCurDp = {0};
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI duskFm = createDeployAuditFleetManagerMock(
+                    1, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, duskMaxDp, duskCurDp, duskDeployed, duskReserves);
+
+            // Simulate exact vanilla admiral.G DESTROYER wheel loop (including iload_9 = onlyCarriersOrCivs!)
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> duskWave = new ArrayList<>();
+            for (int retry = 0; retry < 30 && duskWave.size() < 6; retry++) {
+                boolean onlyCarriersOrCivs = true;
+                for (com.fs.starfarer.api.fleet.FleetMemberAPI r : duskReserves) {
+                    if (!duskWave.contains(r) && !r.isCarrier() && !r.isCivilian()) {
+                        onlyCarriersOrCivs = false;
+                        break;
+                    }
+                }
+                for (com.fs.starfarer.api.fleet.FleetMemberAPI cand : duskReserves) {
+                    if (duskWave.contains(cand)) continue;
+                    if (!divisionai.DivisionDeploymentPlanner.isCandidateAllowedForCohesiveDeployment(
+                            duskFm, false, duskRoster, duskWave, cand)) {
+                        continue;
+                    }
+                    // Vanilla admiral.G line 892: if (!onlyCarriersOrCivs && cand.isCarrier()) reject!
+                    if (!onlyCarriersOrCivs && cand.isCarrier()) {
+                        continue;
+                    }
+                    duskWave.add(cand);
+                    break;
+                }
+            }
+            boolean duskborneDeadlockFixed = duskWave.size() == 6
+                    && "shiryo_13".equals(duskWave.get(0).getId())
+                    && "xg_1".equals(duskWave.get(1).getId());
+
+            // 2. Anti-Phase-Cheese Civilian Wheel Rewrite (0 FRIGATE slots on wheel: Dram div vs Phaeton div)
+            final List<com.fs.starfarer.api.fleet.FleetMemberAPI> civReserves = new ArrayList<>();
+            java.util.Map<String, divisionai.PermanentDivisionManager.PermanentDivisionSpec> civRoster = new java.util.HashMap<>();
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec dramDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("civ_dram_div", "Tanker Group", DivisionArchetype.FRIGATE_DIVISION);
+            for (int i = 1; i <= 4; i++) {
+                String id = "dram_" + i;
+                if (i == 1) dramDiv.flagshipMemberId = id;
+                dramDiv.memberIds.add(id);
+                civReserves.add(createDeployAuditMemberMock(id, "dram", HullSize.FRIGATE, false, false, true, false, false, 3f, 0.70f));
+                civRoster.put(id, dramDiv);
+            }
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec phaetonDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("civ_phaeton_div", "Fuel Detachment", DivisionArchetype.DESTROYER_DIVISION);
+            phaetonDiv.flagshipMemberId = "phaeton_1";
+            phaetonDiv.memberIds.add("phaeton_1");
+            com.fs.starfarer.api.fleet.FleetMemberAPI phaeton = createDeployAuditMemberMock(
+                    "phaeton_1", "phaeton", HullSize.DESTROYER, false, false, true, false, false, 6f, 0.70f);
+            civReserves.add(phaeton);
+            civRoster.put("phaeton_1", phaetonDiv);
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI civFm = createDeployAuditFleetManagerMock(
+                    1, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, new int[]{120}, new int[]{0}, new ArrayList<>(), civReserves);
+            boolean phaseCheeseCivDestroyerAllowed = divisionai.DivisionDeploymentPlanner.isCandidateAllowedForCohesiveDeployment(
+                    civFm, false, civRoster, java.util.Collections.emptyList(), phaeton);
+
+            // 3. Allied Pursuit CR <= 0.10f Gate (owner=0, allyOnlyMode=true, ATTACK vs ESCAPE)
+            com.fs.starfarer.api.fleet.FleetMemberAPI allyCommittedOnField = createDeployAuditMemberMock(
+                    "ally_dd_1", "sunder", HullSize.DESTROYER, false, false, false, false, true, 11f, 0.65f);
+            com.fs.starfarer.api.fleet.FleetMemberAPI allyLowCrWingman = createDeployAuditMemberMock(
+                    "ally_dd_2", "sunder", HullSize.DESTROYER, false, false, false, false, true, 11f, 0.08f);
+            com.fs.starfarer.api.fleet.FleetMemberAPI allyHealthyLowTierPeer = createDeployAuditMemberMock(
+                    "ally_dd_other", "hammerhead", HullSize.DESTROYER, false, false, false, false, true, 10f, 0.35f);
+            java.util.Map<String, divisionai.PermanentDivisionManager.PermanentDivisionSpec> allyRoster = new java.util.HashMap<>();
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec allyDiv1 =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("ally_div_1", "Allied Div 1", DivisionArchetype.DESTROYER_DIVISION);
+            allyDiv1.flagshipMemberId = "ally_dd_1";
+            allyDiv1.memberIds.add("ally_dd_1");
+            allyDiv1.memberIds.add("ally_dd_2");
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec allyDiv2 =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("ally_div_2", "Allied Div 2", DivisionArchetype.DESTROYER_DIVISION);
+            allyDiv2.flagshipMemberId = "ally_dd_other";
+            allyDiv2.memberIds.add("ally_dd_other");
+            allyRoster.put("ally_dd_1", allyDiv1);
+            allyRoster.put("ally_dd_2", allyDiv1);
+            allyRoster.put("ally_dd_other", allyDiv2);
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI allyPlayerFm = createDeployAuditFleetManagerMock(
+                    0, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, new int[]{240}, new int[]{20},
+                    java.util.Collections.singletonList(allyCommittedOnField),
+                    java.util.Arrays.asList(allyLowCrWingman, allyHealthyLowTierPeer));
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI escapingEnemyFm = createDeployAuditFleetManagerMock(
+                    1, com.fs.starfarer.api.fleet.FleetGoal.ESCAPE, new int[]{240}, new int[]{20},
+                    java.util.Collections.emptyList(), java.util.Collections.emptyList());
+            boolean alliedPursuitCrGateOk = divisionai.DivisionDeploymentPlanner.evaluateCandidateForCohesiveDeployment(
+                    allyPlayerFm, escapingEnemyFm, null, null, null, true, allyRoster,
+                    java.util.Collections.emptyList(), allyHealthyLowTierPeer) == divisionai.DivisionDeploymentPlanner.CohesiveDecision.ALLOW;
+
+            // 4A. Orbital Station High-DP Non-Starvation (200 DP station + 3 frigates = 215/240 DP, 25 DP free, 2x 14-DP cruisers)
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> stnDeployed = new ArrayList<>();
+            stnDeployed.add(createDeployAuditMemberMock("stn_1", "station3", HullSize.CAPITAL_SHIP, false, false, false, true, false, 200f, 0.70f));
+            for (int fi = 1; fi <= 3; fi++) {
+                stnDeployed.add(createDeployAuditMemberMock("stn_ff_" + fi, "lasher", HullSize.FRIGATE, false, false, false, false, false, 5f, 0.70f));
+            }
+            com.fs.starfarer.api.fleet.FleetMemberAPI stnCru1 = createDeployAuditMemberMock(
+                    "stn_cru_1", "eagle", HullSize.CRUISER, false, false, false, false, false, 14f, 0.70f);
+            com.fs.starfarer.api.fleet.FleetMemberAPI stnCru2 = createDeployAuditMemberMock(
+                    "stn_cru_2", "eagle", HullSize.CRUISER, false, false, false, false, false, 14f, 0.70f);
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec stnCruDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("stn_cru_div", "Station Guard Cruisers", DivisionArchetype.CRUISER_DIVISION);
+            stnCruDiv.flagshipMemberId = "stn_cru_1";
+            stnCruDiv.memberIds.add("stn_cru_1");
+            stnCruDiv.memberIds.add("stn_cru_2");
+            java.util.Map<String, divisionai.PermanentDivisionManager.PermanentDivisionSpec> stnRoster = new java.util.HashMap<>();
+            stnRoster.put("stn_cru_1", stnCruDiv);
+            stnRoster.put("stn_cru_2", stnCruDiv);
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI stnFm = createDeployAuditFleetManagerMock(
+                    1, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, new int[]{240}, new int[]{215},
+                    stnDeployed, java.util.Arrays.asList(stnCru1, stnCru2));
+            boolean stationDoesNotStarveCruisers = divisionai.DivisionDeploymentPlanner.isCandidateAllowedForCohesiveDeployment(
+                    stnFm, false, stnRoster, java.util.Collections.emptyList(), stnCru1);
+
+            // 4B. Mixed-Division Non-Deployable Partner Non-Starvation (14-DP Cruiser + Civilian Freighter at 93% mobile DP)
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> mixDeployed = new ArrayList<>();
+            for (int fi = 1; fi <= 6; fi++) {
+                mixDeployed.add(createDeployAuditMemberMock("mix_ff_" + fi, "lasher", HullSize.FRIGATE, false, false, false, false, false, 5f, 0.70f));
+            }
+            com.fs.starfarer.api.fleet.FleetMemberAPI mixCru = createDeployAuditMemberMock(
+                    "mix_cru_1", "eagle", HullSize.CRUISER, false, false, false, false, false, 14f, 0.70f);
+            com.fs.starfarer.api.fleet.FleetMemberAPI mixCivPartner = createDeployAuditMemberMock(
+                    "mix_civ_2", "colossus", HullSize.CRUISER, false, false, true, false, false, 8f, 0.70f);
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec mixDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("mix_div", "Mixed Convoy Escort", DivisionArchetype.CRUISER_DIVISION);
+            mixDiv.flagshipMemberId = "mix_cru_1";
+            mixDiv.memberIds.add("mix_cru_1");
+            mixDiv.memberIds.add("mix_civ_2");
+            java.util.Map<String, divisionai.PermanentDivisionManager.PermanentDivisionSpec> mixRoster = new java.util.HashMap<>();
+            mixRoster.put("mix_cru_1", mixDiv);
+            mixRoster.put("mix_civ_2", mixDiv);
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI mixFm = createDeployAuditFleetManagerMock(
+                    1, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, new int[]{240}, new int[]{224},
+                    mixDeployed, java.util.Arrays.asList(mixCru, mixCivPartner));
+            boolean mixedUndeployablePartnerDoesNotStarve = divisionai.DivisionDeploymentPlanner.isCandidateAllowedForCohesiveDeployment(
+                    mixFm, false, mixRoster, java.util.Collections.emptyList(), mixCru);
+
+            // 5. Starsector 0.98.5a-RC9 `AdmiralAIConfig.softDeploymentLimits` (`fabricator_unit -> 2`)
+            com.fs.starfarer.api.fleet.FleetMemberAPI fab1 = createDeployAuditMemberMock(
+                    "fab_1", "fabricator_unit", HullSize.CAPITAL_SHIP, false, false, false, false, false, 50f, 1.0f);
+            com.fs.starfarer.api.fleet.FleetMemberAPI fab2 = createDeployAuditMemberMock(
+                    "fab_2", "fabricator_unit", HullSize.CAPITAL_SHIP, false, false, false, false, false, 50f, 1.0f);
+            com.fs.starfarer.api.fleet.FleetMemberAPI fab3Reserve = createDeployAuditMemberMock(
+                    "fab_3", "fabricator_unit", HullSize.CAPITAL_SHIP, false, false, false, false, false, 50f, 1.0f);
+            com.fs.starfarer.api.fleet.FleetMemberAPI threatCapOther = createDeployAuditMemberMock(
+                    "onslaught_mk1", "onslaught_mk1", HullSize.CAPITAL_SHIP, false, false, false, false, false, 40f, 1.0f);
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec fabDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("threat_fab_div", "Fabricator Core", DivisionArchetype.BATTLESHIP_DIVISION);
+            fabDiv.flagshipMemberId = "fab_1";
+            fabDiv.memberIds.addAll(java.util.Arrays.asList("fab_1", "fab_2", "fab_3"));
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec assaultCapDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("threat_assault_div", "Heavy Line", DivisionArchetype.BATTLESHIP_DIVISION);
+            assaultCapDiv.flagshipMemberId = "onslaught_mk1";
+            assaultCapDiv.memberIds.add("onslaught_mk1");
+            java.util.Map<String, divisionai.PermanentDivisionManager.PermanentDivisionSpec> threatRoster = new java.util.HashMap<>();
+            threatRoster.put("fab_1", fabDiv);
+            threatRoster.put("fab_2", fabDiv);
+            threatRoster.put("fab_3", fabDiv);
+            threatRoster.put("onslaught_mk1", assaultCapDiv);
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI threatFm = createDeployAuditFleetManagerMock(
+                    1, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, new int[]{240}, new int[]{100},
+                    java.util.Arrays.asList(fab1, fab2),
+                    java.util.Arrays.asList(fab3Reserve, threatCapOther));
+            java.util.Map<String, Integer> rc9SoftLimits = java.util.Collections.singletonMap("fabricator_unit", Integer.valueOf(2));
+            boolean rc9SoftLimitAllowsOtherCapital = divisionai.DivisionDeploymentPlanner.evaluateCandidateForCohesiveDeployment(
+                    threatFm, null, null, null, rc9SoftLimits, false, threatRoster,
+                    java.util.Collections.emptyList(), threatCapOther) == divisionai.DivisionDeploymentPlanner.CohesiveDecision.ALLOW;
+
+            // 6A. Upstream Mod Delegate Chaining (`ShipMasterySystem` RemoteBeaconDefenderHandler pattern)
+            com.fs.starfarer.api.fleet.FleetMemberAPI bossBeaconCru = createDeployAuditMemberMock(
+                    "beacon_cru", "falcon", HullSize.CRUISER, false, false, false, false, false, 14f, 0.70f);
+            List<com.fs.starfarer.api.fleet.FleetMemberAPI> beaconReserves = new ArrayList<>();
+            java.util.Map<String, divisionai.PermanentDivisionManager.PermanentDivisionSpec> beaconRoster = new java.util.HashMap<>();
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec bigCruDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("big_cru_div", "Main Cruiser Line", DivisionArchetype.CRUISER_DIVISION);
+            for (int i = 1; i <= 4; i++) {
+                String id = "main_cru_" + i;
+                if (i == 1) bigCruDiv.flagshipMemberId = id;
+                bigCruDiv.memberIds.add(id);
+                beaconReserves.add(createDeployAuditMemberMock(id, "eagle", HullSize.CRUISER, false, false, false, false, false, 14f, 0.70f));
+                beaconRoster.put(id, bigCruDiv);
+            }
+            divisionai.PermanentDivisionManager.PermanentDivisionSpec loneBeaconDiv =
+                    new divisionai.PermanentDivisionManager.PermanentDivisionSpec("beacon_div", "Beacon Escort", DivisionArchetype.CRUISER_DIVISION);
+            loneBeaconDiv.flagshipMemberId = "beacon_cru";
+            loneBeaconDiv.memberIds.add("beacon_cru");
+            beaconReserves.add(bossBeaconCru);
+            beaconRoster.put("beacon_cru", loneBeaconDiv);
+            com.fs.starfarer.api.combat.CombatFleetManagerAPI beaconFm = createDeployAuditFleetManagerMock(
+                    1, com.fs.starfarer.api.fleet.FleetGoal.ATTACK, new int[]{240}, new int[]{0},
+                    java.util.Collections.emptyList(), beaconReserves);
+            com.fs.starfarer.api.combat.AdmiralAIPlugin.AdmiralPluginDelegate upstreamBeaconDelegate =
+                    new com.fs.starfarer.api.combat.AdmiralAIPlugin.AdmiralPluginDelegate() {
+                        @Override
+                        public void doAdditionalInitialDeployment() {
+                        }
+
+                        @Override
+                        public boolean allowedToDeploy(List<com.fs.starfarer.api.fleet.FleetMemberAPI> deployingSoFar,
+                                                       com.fs.starfarer.api.fleet.FleetMemberAPI member) {
+                            if (member != bossBeaconCru && (deployingSoFar == null || !deployingSoFar.contains(bossBeaconCru))) {
+                                return false;
+                            }
+                            return true;
+                        }
+                    };
+            com.fs.starfarer.api.combat.AdmiralAIPlugin.AdmiralPluginDelegate chainedDel =
+                    divisionai.DivisionDeploymentPlanner.createDelegateForTesting(
+                            beaconFm, null, false, upstreamBeaconDelegate, beaconRoster);
+            boolean upstreamBlocksOthersFirst = !chainedDel.allowedToDeploy(java.util.Collections.emptyList(), beaconReserves.get(0));
+            boolean upstreamBeaconAllowedWithoutMutualVeto = chainedDel.allowedToDeploy(java.util.Collections.emptyList(), bossBeaconCru);
+            boolean afterBeaconMainDivLeaderAllowed = chainedDel.allowedToDeploy(
+                    java.util.Collections.singletonList(bossBeaconCru), beaconReserves.get(0));
+            boolean upstreamChainingOk = upstreamBlocksOthersFirst && upstreamBeaconAllowedWithoutMutualVeto && afterBeaconMainDivLeaderAllowed;
+
+            // 6B. Stateful Consecutive Peer-Veto Circuit Breaker (synthetic hostile mod rejecting preferred peer externally)
+            com.fs.starfarer.api.combat.AdmiralAIPlugin.AdmiralPluginDelegate breakerDel =
+                    divisionai.DivisionDeploymentPlanner.createDelegateForTesting(
+                            beaconFm, null, false, null, beaconRoster);
+            boolean initiallyVetoesLoneShip = !breakerDel.allowedToDeploy(java.util.Collections.emptyList(), bossBeaconCru);
+            boolean breakerEventuallyFailsOpen = false;
+            for (int attempt = 0; attempt < 25; attempt++) {
+                if (breakerDel.allowedToDeploy(java.util.Collections.emptyList(), bossBeaconCru)) {
+                    breakerEventuallyFailsOpen = true;
+                    break;
+                }
+            }
+            // Verify circuit breaker resets cleanly as soon as deployingSoFar advances!
+            boolean resetsOnProgress = !breakerDel.allowedToDeploy(
+                    java.util.Collections.singletonList(beaconReserves.get(0)), bossBeaconCru);
+            boolean circuitBreakerOk = initiallyVetoesLoneShip && breakerEventuallyFailsOpen && resetsOnProgress;
+
+            check(duskborneDeadlockFixed
+                            && phaseCheeseCivDestroyerAllowed
+                            && alliedPursuitCrGateOk
+                            && stationDoesNotStarveCruisers
+                            && mixedUndeployablePartnerDoesNotStarve
+                            && rc9SoftLimitAllowsOtherCapital
+                            && upstreamChainingOk
+                            && circuitBreakerOk,
+                    "Deployment Anti-Soft-Lock Suite (Wingless Carrier, Phase-Cheese Civs, Allied CR<=10%, Station/Mixed Batching, 0.98.5a-RC9 SoftLimits, Upstream Delegate & Circuit Breaker)",
+                    String.format(Locale.ROOT,
+                            "duskWave=%d(first=%s), civPhaeton=%b, allyCr10=%b, stationCru=%b, mixPartner=%b, rc9FabCap=%b, upstream=%b, breaker=%b",
+                            duskWave.size(),
+                            duskWave.isEmpty() ? "none" : duskWave.get(0).getId(),
+                            phaseCheeseCivDestroyerAllowed,
+                            alliedPursuitCrGateOk,
+                            stationDoesNotStarveCruisers,
+                            mixedUndeployablePartnerDoesNotStarve,
+                            rc9SoftLimitAllowsOtherCapital,
+                            upstreamChainingOk,
+                            circuitBreakerOk));
+        } finally {
+            divisionai.DivisionDeploymentPlanner.resetForNewBattle();
+        }
     }
 
     private static com.fs.starfarer.api.combat.WeaponGroupAPI createAutofirePerfGroupMock(final com.fs.starfarer.api.combat.WeaponAPI w) {
